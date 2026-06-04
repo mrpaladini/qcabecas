@@ -1,0 +1,375 @@
+// ============================================================
+// Portal Quebra Cabeças 10 Anos — Prisma Schema
+// ============================================================
+// Banco: MySQL 8.0+
+// ORM: Prisma 6.x
+// Sincronizado com: setup.sql
+//
+// Convenções:
+//   - Todos os models usam @@map para apontar ao nome da tabela SQL (snake_case)
+//   - Campos usam @map para apontar ao nome da coluna SQL (snake_case)
+//   - Relações ambíguas (3 FKs para users em appointments) usam @relation(name: "...")
+//   - ENUMs espelham exatamente os ENUM do MySQL
+//   - DateTime com @db.DateTime(3) — precisão de milissegundos (consistente com SQL)
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// ENUMs
+// ============================================================
+
+/// Perfil de acesso do usuário no portal.
+enum Role {
+  ALUNO
+  PROFESSOR
+  COORDENADOR
+}
+
+/// Estado do agendamento de aula.
+enum AppointmentStatus {
+  AGENDADO
+  CANCELADO
+  CONCLUIDO
+}
+
+/// Tipo de e-mail transacional enviado.
+enum EmailType {
+  CONFIRMACAO
+  CANCELAMENTO
+  LEMBRETE
+}
+
+/// Resultado do envio do e-mail.
+enum EmailStatus {
+  ENVIADO
+  ERRO
+}
+
+// ============================================================
+// Model: User
+// Representa alunos, professores e coordenadores.
+// LGPD: email, name, phone são dados pessoais.
+// ============================================================
+model User {
+  id           BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  email        String    @unique @db.VarChar(255)
+  passwordHash String    @map("password_hash") @db.VarChar(255)
+  name         String    @db.VarChar(150)
+  role         Role      @default(ALUNO)
+  phone        String?   @db.VarChar(20)
+  tempPassword      String?  @map("temp_password")       @db.VarChar(20)
+  precoPresencial   Decimal? @map("preco_presencial")     @db.Decimal(10, 2)
+  precoVirtual      Decimal? @map("preco_virtual")        @db.Decimal(10, 2)
+
+  // Campos LGPD art. 14 — obrigatórios para identificação e consentimento de menores
+  dataNascimento      DateTime? @map("data_nascimento") @db.Date
+  responsavelNome     String?   @map("responsavel_nome") @db.VarChar(150)
+  cpfResponsavel      String?   @map("cpf_responsavel") @db.VarChar(14)
+  responsavelEmail    String?   @map("responsavel_email") @db.VarChar(255)
+  responsavelTelefone String?   @map("responsavel_telefone") @db.VarChar(20)
+  consentimentoLgpd   Boolean   @default(false) @map("consentimento_lgpd")
+  consentimentoData   DateTime? @map("consentimento_data") @db.DateTime(3)
+
+  // Endereço (usado para alunos)
+  rua                String? @db.VarChar(255)
+  bairro             String? @db.VarChar(100)
+  cidade             String? @db.VarChar(100)
+  cep                String? @db.VarChar(9)
+  referenciaEndereco String? @map("referencia_endereco") @db.VarChar(255)
+
+  // Dados educacionais (alunos)
+  escola      String? @db.VarChar(200)
+  serie       String? @db.VarChar(50)
+  observacoes String? @db.Text
+
+  createdAt    DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+  deletedAt    DateTime? @map("deleted_at") @db.DateTime(3)
+
+  // Relações — aliases distintos para as 3 referências em Appointment
+  appointmentsAsAluno       Appointment[] @relation(name: "AlunoAppointments")
+  appointmentsAsProfessor   Appointment[] @relation(name: "ProfessorAppointments")
+  appointmentsAsCoordenador Appointment[] @relation(name: "CoordenadorAppointments")
+
+  // Materiais enviados pelo aluno
+  materials       Material[]
+  subjectTeachers SubjectTeacher[]
+
+  // Finanças
+  contaAluno            ContaAluno?
+  transacoesRegistradas TransacaoAluno[] @relation(name: "RegistradorTransacoes")
+
+  // Pagamentos professor
+  pagamentosRecebidos   PagamentoProfessor[] @relation(name: "ProfessorPagamentos")
+  pagamentosGerados     PagamentoProfessor[] @relation(name: "GeradorPagamentos")
+
+  @@index([role])
+  @@index([deletedAt])
+  @@index([role, deletedAt])
+  @@map("users")
+}
+
+// ============================================================
+// Model: Appointment
+// Agendamentos de aulas. Criados apenas por COORDENADOR.
+// Possui 3 FKs para users — aliases obrigatórios no Prisma.
+// ============================================================
+model Appointment {
+  id              BigInt            @id @default(autoincrement()) @db.UnsignedBigInt
+  coordenadorId   BigInt            @map("coordenador_id") @db.UnsignedBigInt
+  alunoId         BigInt            @map("aluno_id") @db.UnsignedBigInt
+  professorId     BigInt            @map("professor_id") @db.UnsignedBigInt
+  roomId          Int?              @map("room_id") @db.UnsignedInt
+  subjectId       Int?              @map("subject_id") @db.UnsignedInt
+  disciplina      String            @db.VarChar(150)
+  dataHora        DateTime          @map("data_hora") @db.DateTime(3)
+  duracaoMinutos  Int               @default(60) @map("duracao_minutos") @db.SmallInt
+  status          AppointmentStatus @default(AGENDADO)
+  observacoes     String?           @db.Text
+  valorCobrado    Decimal?          @map("valor_cobrado") @db.Decimal(10, 2)
+  createdAt       DateTime          @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.DateTime(3)
+  cancelledAt     DateTime?         @map("cancelled_at") @db.DateTime(3)
+
+  // Relações com User — aliases distintos evitam ambiguidade no Prisma
+  coordenador User @relation(name: "CoordenadorAppointments", fields: [coordenadorId], references: [id])
+  aluno       User @relation(name: "AlunoAppointments", fields: [alunoId], references: [id])
+  professor   User @relation(name: "ProfessorAppointments", fields: [professorId], references: [id])
+
+  // Relações com Room e Subject
+  room    Room?    @relation(fields: [roomId], references: [id])
+  subject Subject? @relation(fields: [subjectId], references: [id])
+
+  // Filhos
+  materials      Material[]
+  emailLogs      EmailLog[]
+  evidencia      Evidencia?
+  transacaoAluno TransacaoAluno?
+
+  // Índices compostos para consultas de agenda por aluno/professor
+  @@index([coordenadorId])
+  @@index([alunoId])
+  @@index([professorId])
+  @@index([alunoId, dataHora])
+  @@index([professorId, dataHora])
+  @@index([status])
+  @@index([dataHora])
+  @@map("appointments")
+}
+
+// ============================================================
+// Model: Material
+// Arquivos enviados por alunos vinculados a um agendamento.
+// ============================================================
+model Material {
+  id            BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  appointmentId BigInt   @map("appointment_id") @db.UnsignedBigInt
+  alunoId       BigInt   @map("aluno_id") @db.UnsignedBigInt
+  originalName  String   @map("original_name") @db.VarChar(255)
+  storedName    String   @map("stored_name") @db.VarChar(255)
+  filepath      String   @db.VarChar(500)
+  mimetype      String   @db.VarChar(100)
+  sizeBytes     Int      @map("size_bytes") @db.UnsignedInt
+  createdAt     DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  // Relações
+  appointment Appointment @relation(fields: [appointmentId], references: [id])
+  aluno       User        @relation(fields: [alunoId], references: [id])
+
+  @@index([appointmentId])
+  @@index([alunoId])
+  @@index([appointmentId, alunoId])
+  @@map("materials")
+}
+
+// ============================================================
+// Model: EmailLog
+// Registro de todos os e-mails transacionais enviados.
+// ============================================================
+model EmailLog {
+  id             BigInt      @id @default(autoincrement()) @db.UnsignedBigInt
+  appointmentId  BigInt      @map("appointment_id") @db.UnsignedBigInt
+  recipientEmail String      @map("recipient_email") @db.VarChar(255)
+  type           EmailType
+  sentAt         DateTime    @default(now()) @map("sent_at") @db.DateTime(3)
+  status         EmailStatus @default(ENVIADO)
+  errorMessage   String?     @map("error_message") @db.Text
+  createdAt      DateTime    @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt      DateTime    @updatedAt @map("updated_at") @db.DateTime(3)
+
+  // Relação com Appointment
+  appointment Appointment @relation(fields: [appointmentId], references: [id])
+
+  @@index([appointmentId])
+  @@index([status])
+  @@index([type])
+  @@index([sentAt])
+  @@index([appointmentId, type])
+  @@map("email_logs")
+}
+
+// ============================================================
+// Model: Room — Salas de aula presenciais e virtuais
+// ============================================================
+model Room {
+  id                   Int      @id @default(autoincrement()) @db.UnsignedInt
+  name                 String   @db.VarChar(150)
+  type                 RoomType @default(PRESENCIAL)
+  location             String?  @db.VarChar(255)
+  capacity             Int?     @db.SmallInt
+  active               Boolean  @default(true)
+  horariosDisponiveis  Json?    @map("horarios_disponiveis") @db.Json
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+  deletedAt            DateTime? @map("deleted_at")
+
+  appointments Appointment[]
+
+  @@index([type])
+  @@index([active])
+  @@map("rooms")
+}
+
+// ============================================================
+// Model: Subject — Disciplinas
+// ============================================================
+model Subject {
+  id          Int      @id @default(autoincrement()) @db.UnsignedInt
+  name        String   @unique @db.VarChar(100)
+  description String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  appointments    Appointment[]
+  subjectTeachers SubjectTeacher[]
+
+  @@map("subjects")
+}
+
+// ============================================================
+// Model: SubjectTeacher — Professores habilitados por disciplina
+// ============================================================
+model SubjectTeacher {
+  subjectId Int    @map("subject_id") @db.UnsignedInt
+  userId    BigInt @map("user_id") @db.UnsignedBigInt
+  createdAt DateTime @default(now()) @map("created_at")
+
+  subject Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([subjectId, userId])
+  @@map("subject_teachers")
+}
+
+// ============================================================
+// Model: Evidencia — Log de aulas concluídas ou canceladas
+// Criado/atualizado automaticamente ao mudar status do agendamento.
+// ============================================================
+model Evidencia {
+  id             BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  appointmentId  BigInt   @unique @map("appointment_id") @db.UnsignedBigInt
+  alunoNome      String   @map("aluno_nome") @db.VarChar(150)
+  professorNome  String   @map("professor_nome") @db.VarChar(150)
+  dataAula       DateTime @map("data_aula") @db.DateTime(3)
+  duracaoMinutos Int      @map("duracao_minutos") @db.SmallInt
+  disciplina     String   @db.VarChar(150)
+  salaTipo       String?  @map("sala_tipo") @db.VarChar(20)
+  valorProfessor Decimal  @map("valor_professor") @db.Decimal(10, 2)
+  valorAluno     Decimal  @map("valor_aluno") @db.Decimal(10, 2)
+  status         String   @db.VarChar(20)
+  pagoProfessor  Boolean  @default(false) @map("pago_professor")
+  pagamentoId    BigInt?  @map("pagamento_id") @db.UnsignedBigInt
+  registradoEm   DateTime @default(now()) @map("registrado_em") @db.DateTime(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  appointment Appointment          @relation(fields: [appointmentId], references: [id])
+  pagamento   PagamentoProfessor?  @relation(fields: [pagamentoId], references: [id])
+
+  @@index([status])
+  @@index([pagoProfessor])
+  @@index([registradoEm])
+  @@map("evidencias")
+}
+
+// ============================================================
+// Model: ContaAluno — saldo financeiro por aluno
+// ============================================================
+model ContaAluno {
+  id        Int      @id @default(autoincrement()) @db.UnsignedInt
+  alunoId   BigInt   @unique @map("aluno_id") @db.UnsignedBigInt
+  saldo     Decimal  @default(0) @map("saldo") @db.Decimal(10, 2)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  aluno      User             @relation(fields: [alunoId], references: [id])
+  transacoes TransacaoAluno[]
+
+  @@map("contas_aluno")
+}
+
+// ============================================================
+// Model: TransacaoAluno — créditos e débitos por aluno
+// ============================================================
+model TransacaoAluno {
+  id            BigInt        @id @default(autoincrement()) @db.UnsignedBigInt
+  contaId       Int           @map("conta_id") @db.UnsignedInt
+  tipo          TipoTransacao
+  valor         Decimal       @db.Decimal(10, 2)
+  descricao     String        @db.VarChar(255)
+  appointmentId BigInt?       @unique @map("appointment_id") @db.UnsignedBigInt
+  registradoPor BigInt        @map("registrado_por") @db.UnsignedBigInt
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  conta       ContaAluno   @relation(fields: [contaId], references: [id])
+  appointment Appointment? @relation(fields: [appointmentId], references: [id])
+  registrador User         @relation(name: "RegistradorTransacoes", fields: [registradoPor], references: [id])
+
+  @@index([contaId])
+  @@index([createdAt])
+  @@map("transacoes_aluno")
+}
+
+// ============================================================
+// Model: PagamentoProfessor — lotes de pagamento para professores
+// ============================================================
+model PagamentoProfessor {
+  id            BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  professorId   BigInt    @map("professor_id") @db.UnsignedBigInt
+  professorNome String    @map("professor_nome") @db.VarChar(150)
+  totalValor    Decimal   @map("total_valor") @db.Decimal(10, 2)
+  aulaCount     Int       @map("aula_count") @db.SmallInt
+  periodoInicio DateTime? @map("periodo_inicio") @db.DateTime(3)
+  periodoFim    DateTime? @map("periodo_fim") @db.DateTime(3)
+  observacoes   String?   @db.Text
+  geradoEm      DateTime  @default(now()) @map("gerado_em") @db.DateTime(3)
+  geradoPor     BigInt    @map("gerado_por") @db.UnsignedBigInt
+
+  professor  User        @relation(name: "ProfessorPagamentos", fields: [professorId], references: [id])
+  gerador    User        @relation(name: "GeradorPagamentos", fields: [geradoPor], references: [id])
+  evidencias Evidencia[]
+
+  @@index([professorId])
+  @@index([geradoEm])
+  @@map("pagamentos_professor")
+}
+
+// ENUMs adicionais
+enum TipoTransacao {
+  CREDITO
+  DEBITO
+}
+
+enum RoomType {
+  PRESENCIAL
+  VIRTUAL
+}
