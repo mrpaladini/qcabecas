@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
+import { decryptTemp } from "@/lib/crypto"
 import { NovoUsuarioForm } from "@/components/coordenador/NovoUsuarioForm"
 import { UsuarioCRUD } from "@/components/coordenador/UsuarioCRUD"
 
@@ -20,6 +21,7 @@ export default async function CoordenadoresPage() {
     role: "COORDENADOR" as const,
     precoPresencial: null,
     precoVirtual: null,
+    tempPassword: c.tempPassword ? decryptTemp(c.tempPassword) : null,
   }))
 
   const ativos   = data.filter(c => !c.deletedAt)

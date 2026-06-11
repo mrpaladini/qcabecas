@@ -42,8 +42,8 @@ export async function uploadMaterial(formData: FormData) {
 
   if (!file || !appointmentIdRaw) return { success: false, error: "Arquivo e agendamento são obrigatórios" }
 
-  const appointmentId = parseInt(appointmentIdRaw)
-  if (isNaN(appointmentId)) return { success: false, error: "Agendamento inválido" }
+  let appointmentId: bigint
+  try { appointmentId = BigInt(appointmentIdRaw) } catch { return { success: false, error: "Agendamento inválido" } }
 
   // Anti-IDOR: agendamento deve pertencer ao aluno logado
   const appointment = await prisma.appointment.findFirst({

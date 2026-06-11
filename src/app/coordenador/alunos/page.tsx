@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
+import { decryptTemp } from "@/lib/crypto"
 import { NovoUsuarioForm } from "@/components/coordenador/NovoUsuarioForm"
 import { UsuarioCRUD } from "@/components/coordenador/UsuarioCRUD"
 
@@ -26,6 +27,7 @@ export default async function AlunosPage() {
     role: "ALUNO" as const,
     precoPresencial: a.precoPresencial?.toString() ?? null,
     precoVirtual: a.precoVirtual?.toString() ?? null,
+    tempPassword: a.tempPassword ? decryptTemp(a.tempPassword) : null,
   }))
 
   const ativos     = data.filter(a => !a.deletedAt)

@@ -41,3 +41,6 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# Arquivos enviados por usuários — nunca commitar
+/uploads

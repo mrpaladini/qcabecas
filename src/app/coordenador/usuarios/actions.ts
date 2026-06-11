@@ -6,6 +6,8 @@ import { revalidatePath } from "next/cache"
 import bcrypt from "bcryptjs"
 import { z } from "zod"
 import { Role } from "@prisma/client"
+import { randomBytes } from "crypto"
+import { encryptTemp, decryptTemp } from "@/lib/crypto"
 
 function requireCoordenador(session: any) {
   if (!session?.user || session.user.role !== "COORDENADOR")
@@ -14,7 +16,8 @@ function requireCoordenador(session: any) {
 
 function gerarSenha(tamanho = 8): string {
   const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789"
-  return Array.from({ length: tamanho }, () => chars[Math.floor(Math.random() * chars.length)]).join("")
+  const bytes = randomBytes(tamanho)
+  return Array.from(bytes, b => chars[b % chars.length]).join("")
 }
 
 const str = (max: number) => z.string().max(max).optional()
@@ -97,7 +100,7 @@ export async function criarUsuario(formData: FormData) {
     data: {
       name, email, phone, role,
       passwordHash,
-      tempPassword: senhaPlain,
+      tempPassword: encryptTemp(senhaPlain),
       consentimentoLgpd: true,
       precoPresencial: precoPresencial ?? null,
       precoVirtual:    precoVirtual ?? null,
@@ -199,6 +202,6 @@ export async function regerarSenha(id: string) {
   requireCoordenador(session)
   const senhaPlain   = gerarSenha()
   const passwordHash = await bcrypt.hash(senhaPlain, 12)
-  await prisma.user.update({ where: { id: BigInt(id) }, data: { passwordHash, tempPassword: senhaPlain } })
+  await prisma.user.update({ where: { id: BigInt(id) }, data: { passwordHash, tempPassword: encryptTemp(senhaPlain) } })
   return { success: true, data: { senhaGerada: senhaPlain } }
 }
