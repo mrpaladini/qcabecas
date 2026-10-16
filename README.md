@@ -20,6 +20,32 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Banco de dados (produção — Hostinger)
+
+O banco de produção é um MySQL hospedado na Hostinger, no mesmo servidor da aplicação.
+
+| Item | Valor |
+|---|---|
+| Host | `127.0.0.1` |
+| Porta | `3306` |
+| Banco | `u677463664_qcdb` |
+| Usuário | `u677463664_qcadmin` |
+| Senha | não fica no repositório — ver `env_hostinger.txt` (local) ou hPanel → Bancos de dados |
+| phpMyAdmin | https://auth-db812.hstgr.io/index.php?route=/database/structure&db=u677463664_qcdb |
+
+String de conexão (variável `DATABASE_URL` nas variáveis de ambiente do site no hPanel):
+
+```
+mysql://u677463664_qcadmin:SENHA_CODIFICADA@127.0.0.1:3306/u677463664_qcdb
+```
+
+- Caracteres especiais da senha precisam ser codificados na URL (`!` → `%21`, `@` → `%40`).
+- `127.0.0.1` só funciona para a aplicação rodando na Hostinger. Para acessar do computador
+  local (ex.: `npx prisma db pull`), libere o IP em hPanel → Bancos de dados → MySQL remoto
+  e use o host remoto informado lá.
+- Para levar dados do banco local: gere `qcabecas_export.sql` com `exportar-banco.bat` e
+  importe pelo phpMyAdmin no banco `u677463664_qcdb`.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
