@@ -44,3 +44,17 @@ next-env.d.ts
 
 # Arquivos enviados por usuários — nunca commitar
 /uploads
+
+# Modelo de variáveis de ambiente (sem segredos) pode ir para o repositório
+!.env.example
+
+# Scripts e logs locais de teste (contêm senhas) — nunca commitar
+/_listar_usuarios.cjs
+/_definir_senha.cjs
+/_usuarios_teste.txt
+/*_log.txt
+/iniciar-dev.bat
+/definir-senha-coordenador.bat
+
+# Configurações locais do Claude
+/.claude/
