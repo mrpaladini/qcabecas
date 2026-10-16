@@ -1,5 +1,4 @@
-import type { NextConfig } from "next"
-
+// Config em JavaScript puro (.mjs): o build da Hostinger não carrega next.config.ts
 const isDev = process.env.NODE_ENV === "development"
 
 // Em dev: unsafe-eval necessário para React source maps e Turbopack
@@ -8,7 +7,8 @@ const scriptSrc = isDev
   ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
   : "script-src 'self' 'unsafe-inline'"
 
-const nextConfig: NextConfig = {
+/** @type {import("next").NextConfig} */
+const nextConfig = {
   // TODO: corrigir os erros de tipagem (npx tsc --noEmit) e remover esta opção
   typescript: { ignoreBuildErrors: true },
   experimental: {
