@@ -58,3 +58,11 @@ next-env.d.ts
 
 # Configurações locais do Claude
 /.claude/
+
+# Export do banco e script (contém dados pessoais e hashes) — nunca commitar
+/_exportar_banco.cjs
+/exportar-banco.bat
+/*.sql.export
+/qcabecas_export.sql
+/env_hostinger.txt
+/_prisma_client.tgz
