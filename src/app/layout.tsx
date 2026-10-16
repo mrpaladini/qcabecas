@@ -145,7 +145,7 @@ export default async function RootLayout({
                   </li>
                   <li>
                     <a
-                      href="https://www.facebook.com/quebracabecasoficial/"
+                      href="https://www.facebook.com/quebracabecas/"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="hover:text-white transition-colors"
