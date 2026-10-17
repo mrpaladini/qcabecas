@@ -11,7 +11,7 @@ export default async function MateriaisPage() {
   const alunoId = BigInt(session.user.id)
 
   const agendamentos = await prisma.appointment.findMany({
-    where: { alunoId, status: "AGENDADO" },
+    where: { alunoId, status: { in: ["AGENDADO", "PENDENTE"] } },
     orderBy: { dataHora: "asc" },
     include: {
       professor: { select: { name: true } },

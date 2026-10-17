@@ -22,10 +22,10 @@ export default async function AlunoDashboard() {
   })
 
   const proximas = agendamentos.filter(
-    a => a.status === "AGENDADO" && new Date(a.dataHora) >= new Date()
+    a => (a.status === "AGENDADO" || a.status === "PENDENTE") && new Date(a.dataHora) >= new Date()
   )
   const historico = agendamentos.filter(
-    a => a.status !== "AGENDADO" || new Date(a.dataHora) < new Date()
+    a => !((a.status === "AGENDADO" || a.status === "PENDENTE") && new Date(a.dataHora) >= new Date())
   )
 
   return (
@@ -97,9 +97,15 @@ export default async function AlunoDashboard() {
                   )}
                 </div>
                 <div className="flex flex-col items-end gap-2">
-                  <span className="bg-green-100 text-green-700 text-xs font-semibold px-3 py-1 rounded-full">
-                    Agendado
-                  </span>
+                  {apt.status === "PENDENTE" ? (
+                    <span className="bg-amber-100 text-amber-700 text-xs font-semibold px-3 py-1 rounded-full">
+                      A confirmar
+                    </span>
+                  ) : (
+                    <span className="bg-green-100 text-green-700 text-xs font-semibold px-3 py-1 rounded-full">
+                      Agendado
+                    </span>
+                  )}
                   <Link href="/aluno/materiais"
                     className="text-xs text-primary-600 hover:underline font-medium">
                     Enviar material →
@@ -130,9 +136,11 @@ export default async function AlunoDashboard() {
                 <span className={`text-xs font-semibold px-3 py-1 rounded-full ${
                   apt.status === "CONCLUIDO"
                     ? "bg-blue-100 text-blue-700"
-                    : "bg-red-100 text-red-700"
+                    : apt.status === "CANCELADO"
+                      ? "bg-red-100 text-red-700"
+                      : "bg-neutral-100 text-neutral-600"
                 }`}>
-                  {apt.status === "CONCLUIDO" ? "Concluída" : "Cancelada"}
+                  {apt.status === "CONCLUIDO" ? "Concluída" : apt.status === "CANCELADO" ? "Cancelada" : apt.status === "PENDENTE" ? "Não confirmada" : "Realizada"}
                 </span>
               </div>
             ))}

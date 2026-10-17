@@ -14,6 +14,7 @@ model User {
   name                      String               @db.VarChar(150)
   role                      Role                 @default(ALUNO)
   phone                     String?              @db.VarChar(20)
+  phone2                    String?              @map("telefone2") @db.VarChar(20)
   tempPassword              String?              @map("temp_password") @db.VarChar(100)
   precoPresencial           Decimal?             @map("preco_presencial") @db.Decimal(10, 2)
   precoVirtual              Decimal?             @map("preco_virtual") @db.Decimal(10, 2)
@@ -32,6 +33,11 @@ model User {
   escola                    String?              @db.VarChar(200)
   serie                     String?              @db.VarChar(50)
   observacoes               String?              @db.Text
+  escolaAtuacao             String?              @map("escola_atuacao") @db.VarChar(200)
+  seriesAtendidas           Json?                @map("series_atendidas")
+  atendePresencial          Boolean              @default(false) @map("atende_presencial")
+  atendeOnline              Boolean              @default(false) @map("atende_online")
+  disponibilidade           Json?
   createdAt                 DateTime             @default(now()) @map("created_at")
   updatedAt                 DateTime             @updatedAt @map("updated_at")
   deletedAt                 DateTime?            @map("deleted_at")
@@ -44,6 +50,8 @@ model User {
   pagamentosRecebidos       PagamentoProfessor[] @relation("ProfessorPagamentos")
   subjectTeachers           SubjectTeacher[]
   transacoesRegistradas     TransacaoAluno[]     @relation("RegistradorTransacoes")
+  ajustesProfessor          AjusteProfessor[]    @relation("ProfessorAjustes")
+  ajustesRegistrados        AjusteProfessor[]    @relation("RegistradorAjustes")
 
   @@index([role])
   @@index([deletedAt])
@@ -241,6 +249,7 @@ model PagamentoProfessor {
   geradoEm      DateTime    @default(now()) @map("gerado_em")
   geradoPor     BigInt      @map("gerado_por") @db.UnsignedBigInt
   evidencias    Evidencia[]
+  ajustes       AjusteProfessor[]
   gerador       User        @relation("GeradorPagamentos", fields: [geradoPor], references: [id])
   professor     User        @relation("ProfessorPagamentos", fields: [professorId], references: [id])
 
@@ -248,6 +257,29 @@ model PagamentoProfessor {
   @@index([geradoEm])
   @@index([geradoPor], map: "pagamentos_professor_gerado_por_fkey")
   @@map("pagamentos_professor")
+}
+
+/// Lançamentos manuais de crédito/débito na conta do professor.
+/// CREDITO = valor a favor do professor (soma no próximo pagamento);
+/// DEBITO  = desconto (subtrai do próximo pagamento).
+/// Ajustes com pagamentoId NULL ainda não foram incluídos em nenhum pagamento.
+model AjusteProfessor {
+  id            BigInt              @id @default(autoincrement()) @db.UnsignedBigInt
+  professorId   BigInt              @map("professor_id") @db.UnsignedBigInt
+  tipo          TipoTransacao
+  valor         Decimal             @db.Decimal(10, 2)
+  descricao     String              @db.VarChar(255)
+  pagamentoId   BigInt?             @map("pagamento_id") @db.UnsignedBigInt
+  registradoPor BigInt              @map("registrado_por") @db.UnsignedBigInt
+  createdAt     DateTime            @default(now()) @map("created_at")
+  professor     User                @relation("ProfessorAjustes", fields: [professorId], references: [id])
+  registrador   User                @relation("RegistradorAjustes", fields: [registradoPor], references: [id])
+  pagamento     PagamentoProfessor? @relation(fields: [pagamentoId], references: [id])
+
+  @@index([professorId], map: "idx_ajustes_professor")
+  @@index([pagamentoId], map: "idx_ajustes_pagamento")
+  @@index([registradoPor], map: "idx_ajustes_registrador")
+  @@map("ajustes_professor")
 }
 
 /// Perfil de acesso do usuário no portal.
@@ -259,6 +291,7 @@ enum Role {
 
 /// Estado do agendamento de aula.
 enum AppointmentStatus {
+  PENDENTE
   AGENDADO
   CANCELADO
   CONCLUIDO

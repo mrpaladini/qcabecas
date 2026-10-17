@@ -11,7 +11,7 @@ export default async function ProfessorDashboard() {
   const agendamentos = await getAppointmentsByProfessor(professorId)
 
   const proximas = agendamentos.filter(
-    (a) => a.status === "AGENDADO" && new Date(a.dataHora) >= new Date()
+    (a) => (a.status === "AGENDADO" || a.status === "PENDENTE") && new Date(a.dataHora) >= new Date()
   )
 
   return (
@@ -58,9 +58,15 @@ export default async function ProfessorDashboard() {
                       {apt.duracaoMinutos} min
                     </p>
                   </div>
-                  <span className="bg-green-100 text-green-700 text-xs font-semibold px-3 py-1 rounded-full">
-                    Agendado
-                  </span>
+                  {apt.status === "PENDENTE" ? (
+                    <span className="bg-amber-100 text-amber-700 text-xs font-semibold px-3 py-1 rounded-full">
+                      A confirmar
+                    </span>
+                  ) : (
+                    <span className="bg-green-100 text-green-700 text-xs font-semibold px-3 py-1 rounded-full">
+                      Agendado
+                    </span>
+                  )}
                 </div>
 
                 {/* Materiais enviados pelo aluno */}

@@ -42,8 +42,42 @@ const AgendamentoSchema = z.object({
     message: "Escolha 1h, 1h30, 2h, 2h30 ou 3h",
   }).default(60),
   observacoes:    z.string().max(500).optional(),
-  valorCobrado:   z.coerce.number().min(0, "Valor não pode ser negativo").optional(),
+  valorCobrado:   z.coerce.number({ message: "Informe o valor da aula" })
+                    .positive("Informe o valor da aula"),
+  status:         z.enum(["PENDENTE", "AGENDADO"]).default("PENDENTE"),
 })
+
+// Status que ocupam o horário do professor/sala (bloqueiam conflito)
+const STATUS_ATIVOS = ["PENDENTE", "AGENDADO"] as const
+
+async function notificarAula(
+  tipo: "PENDENTE" | "AGENDADO",
+  aluno: { name: string; email: string },
+  professor: { name: string; email: string },
+  disciplinaNome: string,
+  dataHora: Date,
+) {
+  const dataFormatada = dataHora.toLocaleString("pt-BR", {
+    dateStyle: "long", timeStyle: "short", timeZone: "America/Sao_Paulo",
+  })
+  const pendente = tipo === "PENDENTE"
+  await Promise.allSettled([
+    resend.emails.send({
+      from: FROM_EMAIL, to: aluno.email,
+      subject: pendente ? `⏳ Aula pré-agendada: ${disciplinaNome} — confirme sua presença` : `✅ Aula agendada: ${disciplinaNome}`,
+      html: pendente
+        ? `<p>Olá <strong>${aluno.name}</strong>,<br>Reservamos uma aula de <strong>${disciplinaNome}</strong> para <strong>${dataFormatada}</strong> com o Prof. ${professor.name}.<br>Ela está <strong>pendente de confirmação</strong> — responda à coordenação para confirmar.</p>`
+        : `<p>Olá <strong>${aluno.name}</strong>,<br>Sua aula de <strong>${disciplinaNome}</strong> foi agendada para <strong>${dataFormatada}</strong> com o Prof. ${professor.name}.</p>`,
+    }),
+    resend.emails.send({
+      from: FROM_EMAIL, to: professor.email,
+      subject: pendente ? `⏳ Aula a confirmar: ${disciplinaNome} com ${aluno.name}` : `📅 Nova aula: ${disciplinaNome} com ${aluno.name}`,
+      html: pendente
+        ? `<p>Olá <strong>${professor.name}</strong>,<br>Há uma aula de <strong>${disciplinaNome}</strong> com ${aluno.name} pré-agendada para <strong>${dataFormatada}</strong>.<br>Ela está <strong>pendente de confirmação</strong> — responda à coordenação para confirmar.</p>`
+        : `<p>Olá <strong>${professor.name}</strong>,<br>Você tem uma nova aula de <strong>${disciplinaNome}</strong> com ${aluno.name} em <strong>${dataFormatada}</strong>.</p>`,
+    }),
+  ])
+}
 
 async function registrarEvidencia(
   appointmentId: bigint,
@@ -107,6 +141,7 @@ export async function criarAgendamento(formData: FormData) {
     duracaoMinutos: formData.get("duracaoMinutos"),
     observacoes:    formData.get("observacoes") || undefined,
     valorCobrado:   sanitizeValor(formData.get("valorCobrado")),
+    status:         formData.get("status") || undefined,
   }
 
   const parsed = AgendamentoSchema.safeParse(raw)
@@ -116,7 +151,7 @@ export async function criarAgendamento(formData: FormData) {
     return { success: false as const, error: firstMsg, fieldErrors }
   }
 
-  const { alunoId, professorId, subjectId, roomId, dataHora, duracaoMinutos, observacoes, valorCobrado } = parsed.data
+  const { alunoId, professorId, subjectId, roomId, dataHora, duracaoMinutos, observacoes, valorCobrado, status } = parsed.data
 
   // Buscar nome da disciplina (para o campo legado + e-mail)
   const subject = subjectId ? await prisma.subject.findUnique({ where: { id: subjectId } }) : null
@@ -138,7 +173,7 @@ export async function criarAgendamento(formData: FormData) {
   const conflitoProfessor = await prisma.$queryRaw<ConflictRow[]>`
     SELECT id FROM appointments
     WHERE professor_id = ${professorId}
-      AND status = 'AGENDADO'
+      AND status IN ('PENDENTE', 'AGENDADO')
       AND data_hora < ${novoFim}
       AND DATE_ADD(data_hora, INTERVAL duracao_minutos MINUTE) > ${novoInicio}
     LIMIT 1
@@ -155,7 +190,7 @@ export async function criarAgendamento(formData: FormData) {
     const conflitoSala = await prisma.$queryRaw<ConflictRow[]>`
       SELECT id FROM appointments
       WHERE room_id = ${roomId}
-        AND status = 'AGENDADO'
+        AND status IN ('PENDENTE', 'AGENDADO')
         AND data_hora < ${novoFim}
         AND DATE_ADD(data_hora, INTERVAL duracao_minutos MINUTE) > ${novoInicio}
       LIMIT 1
@@ -181,28 +216,13 @@ export async function criarAgendamento(formData: FormData) {
         dataHora:     new Date(dataHora),
         duracaoMinutos,
         observacoes:  observacoes ?? null,
-        valorCobrado: valorCobrado ?? null,
-        status: "AGENDADO",
+        valorCobrado,
+        status,
       },
     })
   })
 
-  const dataFormatada = new Date(dataHora).toLocaleString("pt-BR", {
-    dateStyle: "long", timeStyle: "short", timeZone: "America/Sao_Paulo",
-  })
-
-  await Promise.allSettled([
-    resend.emails.send({
-      from: FROM_EMAIL, to: aluno.email,
-      subject: `✅ Aula agendada: ${disciplinaNome}`,
-      html: `<p>Olá <strong>${aluno.name}</strong>,<br>Sua aula de <strong>${disciplinaNome}</strong> foi agendada para <strong>${dataFormatada}</strong> com o Prof. ${professor.name}.</p>`,
-    }),
-    resend.emails.send({
-      from: FROM_EMAIL, to: professor.email,
-      subject: `📅 Nova aula: ${disciplinaNome} com ${aluno.name}`,
-      html: `<p>Olá <strong>${professor.name}</strong>,<br>Você tem uma nova aula de <strong>${disciplinaNome}</strong> com ${aluno.name} em <strong>${dataFormatada}</strong>.</p>`,
-    }),
-  ])
+  await notificarAula(status, aluno, professor, disciplinaNome, new Date(dataHora))
 
   revalidatePath("/coordenador/agendamentos")
   return { success: true, data: { appointmentId: String(appointment.id) } }
@@ -214,7 +234,7 @@ export async function cancelarAgendamento(appointmentId: bigint) {
   if (session.user.role !== "COORDENADOR") return { success: false, error: "Acesso negado" }
 
   const appointment = await prisma.appointment.findFirst({
-    where: { id: appointmentId, status: "AGENDADO" },
+    where: { id: appointmentId, status: { in: [...STATUS_ATIVOS] } },
   })
   if (!appointment) return { success: false, error: "Agendamento não encontrado ou já cancelado" }
 
@@ -228,7 +248,7 @@ export async function cancelarAgendamento(appointmentId: bigint) {
 }
 
 const AtualizarAgendamentoSchema = z.object({
-  status:         z.enum(["AGENDADO", "CONCLUIDO", "CANCELADO"]),
+  status:         z.enum(["PENDENTE", "AGENDADO", "CONCLUIDO", "CANCELADO"]),
   dataHora:       z.string().min(1),
   duracaoMinutos: z.coerce.number().int().refine(v => [60, 90, 120, 150, 180].includes(v), {
     message: "Duração deve ser 1h, 1h30, 2h, 2h30 ou 3h",
@@ -261,17 +281,25 @@ export async function atualizarAgendamento(appointmentId: string, formData: Form
   if (!apt) return { success: false, error: "Agendamento não encontrado" }
 
   const { status, dataHora, duracaoMinutos, roomId, observacoes, valorCobrado } = parsed.data
+
+  // Valor obrigatório (só dispensado ao cancelar a aula)
+  const valorFinal = valorCobrado ?? (apt.valorCobrado ? Number(apt.valorCobrado) : undefined)
+  if (status !== "CANCELADO" && !(valorFinal && valorFinal > 0)) {
+    const msg = "Valor cobrado: informe o valor da aula"
+    return { success: false as const, error: msg, fieldErrors: { valorCobrado: msg } }
+  }
+
   const novoInicio = new Date(dataHora)
   const novoFim    = new Date(novoInicio.getTime() + duracaoMinutos * 60_000)
   const id         = BigInt(appointmentId)
 
   // Verificar conflito de professor somente se a aula continuará AGENDADA e o horário mudou
-  if (status === "AGENDADO") {
+  if (status === "AGENDADO" || status === "PENDENTE") {
     type ConflictRow = { id: bigint }
     const conflitoProfessor = await prisma.$queryRaw<ConflictRow[]>`
       SELECT id FROM appointments
       WHERE professor_id = ${apt.professorId}
-        AND status = 'AGENDADO'
+        AND status IN ('PENDENTE', 'AGENDADO')
         AND id != ${id}
         AND data_hora < ${novoFim}
         AND DATE_ADD(data_hora, INTERVAL duracao_minutos MINUTE) > ${novoInicio}
@@ -284,7 +312,7 @@ export async function atualizarAgendamento(appointmentId: string, formData: Form
       const conflitoSala = await prisma.$queryRaw<ConflictRow[]>`
         SELECT id FROM appointments
         WHERE room_id = ${roomId}
-          AND status = 'AGENDADO'
+          AND status IN ('PENDENTE', 'AGENDADO')
           AND id != ${id}
           AND data_hora < ${novoFim}
           AND DATE_ADD(data_hora, INTERVAL duracao_minutos MINUTE) > ${novoInicio}
@@ -304,9 +332,14 @@ export async function atualizarAgendamento(appointmentId: string, formData: Form
       roomId:         roomId ?? null,
       observacoes:    observacoes ?? null,
       valorCobrado:   valorCobrado ?? apt.valorCobrado,
-      cancelledAt:    status === "CANCELADO" ? new Date() : (status === "AGENDADO" ? null : apt.cancelledAt),
+      cancelledAt:    status === "CANCELADO" ? new Date() : (status === "AGENDADO" || status === "PENDENTE" ? null : apt.cancelledAt),
     },
   })
+
+  // Pendente → Agendado: avisa aluno e professor que a aula foi confirmada
+  if (apt.status === "PENDENTE" && status === "AGENDADO") {
+    await enviarConfirmacao(id)
+  }
 
   if (status === "CONCLUIDO" || status === "CANCELADO") {
     await registrarEvidencia(id, status)
@@ -349,6 +382,39 @@ export async function atualizarAgendamento(appointmentId: string, formData: Form
     }
     revalidatePath("/coordenador/financas/contas-a-receber")
   }
+
+  revalidatePath("/coordenador/agendamentos")
+  revalidatePath("/coordenador/calendario")
+  return { success: true }
+}
+
+async function enviarConfirmacao(id: bigint) {
+  const full = await prisma.appointment.findUnique({
+    where: { id },
+    include: {
+      aluno:     { select: { name: true, email: true } },
+      professor: { select: { name: true, email: true } },
+      subject:   { select: { name: true } },
+    },
+  })
+  if (full) await notificarAula("AGENDADO", full.aluno, full.professor, full.subject?.name ?? full.disciplina, full.dataHora)
+}
+
+/** Atalho da lista: marca uma aula Pendente como Agendada (confirmada). */
+export async function confirmarAgendamento(appointmentId: string) {
+  const session = await auth()
+  if (!session?.user) return { success: false, error: "Não autenticado" }
+  if ((session.user as any).role !== "COORDENADOR") return { success: false, error: "Acesso negado" }
+
+  const id = BigInt(appointmentId)
+  const apt = await prisma.appointment.findUnique({ where: { id } })
+  if (!apt) return { success: false, error: "Agendamento não encontrado" }
+  if (apt.status !== "PENDENTE") return { success: false, error: "Somente aulas pendentes podem ser confirmadas" }
+  if (!apt.valorCobrado || Number(apt.valorCobrado) <= 0)
+    return { success: false, error: "Informe o valor da aula (Editar) antes de confirmar" }
+
+  await prisma.appointment.update({ where: { id }, data: { status: "AGENDADO" } })
+  await enviarConfirmacao(id)
 
   revalidatePath("/coordenador/agendamentos")
   revalidatePath("/coordenador/calendario")

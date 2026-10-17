@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useTransition, useMemo } from "react"
-import { adicionarCredito, estornarTransacao } from "./actions"
+import { adicionarCredito, adicionarDebito, estornarTransacao } from "./actions"
 
 type Transacao = {
   id: string
@@ -38,9 +38,10 @@ function SaldoBadge({ saldo }: { saldo: number }) {
   return              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-500">Zerado</span>
 }
 
-function AdicionarCreditoForm({ alunoId, onClose }: { alunoId: string; onClose: () => void }) {
+function LancamentoForm({ alunoId, tipo, onClose }: { alunoId: string; tipo: "CREDITO" | "DEBITO"; onClose: () => void }) {
   const [isPending, startTransition] = useTransition()
   const [erro, setErro] = useState<string | null>(null)
+  const credito = tipo === "CREDITO"
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -48,36 +49,48 @@ function AdicionarCreditoForm({ alunoId, onClose }: { alunoId: string; onClose: 
     const fd = new FormData(e.currentTarget)
     fd.set("alunoId", alunoId)
     startTransition(async () => {
-      const res = await adicionarCredito(fd)
+      const res = credito ? await adicionarCredito(fd) : await adicionarDebito(fd)
       if (res.success) onClose()
       else setErro(res.error ?? "Erro")
     })
   }
 
+  const ring = credito ? "focus:ring-green-500" : "focus:ring-red-500"
+
   return (
-    <form onSubmit={handleSubmit} className="mt-3 bg-green-50 border border-green-200 rounded-xl p-4 space-y-3">
-      <p className="text-sm font-semibold text-green-800">Adicionar crédito</p>
+    <form onSubmit={handleSubmit}
+      className={`mt-3 rounded-xl p-4 space-y-3 border ${credito ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}>
+      <div>
+        <p className={`text-sm font-semibold ${credito ? "text-green-800" : "text-red-800"}`}>
+          {credito ? "Adicionar crédito" : "Lançar débito"}
+        </p>
+        <p className="text-xs text-neutral-500 mt-0.5">
+          {credito
+            ? "Pagamento ou adiantamento do aluno — aumenta o saldo."
+            : "Cobrança ou ajuste — diminui o saldo do aluno (ex.: corrigir um crédito lançado a mais, material, taxa)."}
+        </p>
+      </div>
       {erro && <p className="text-xs text-red-600">{erro}</p>}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div>
           <label className="block text-xs font-medium text-neutral-600 mb-1">Valor (R$) *</label>
           <input name="valor" type="number" step="0.01" min="0.01" required
-            className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            className={`w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ${ring}`}
             placeholder="0,00" />
         </div>
         <div className="md:col-span-2">
           <label className="block text-xs font-medium text-neutral-600 mb-1">Descrição</label>
-          <input name="descricao" defaultValue="Crédito adiantado"
-            className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+          <input name="descricao" defaultValue={credito ? "Crédito adiantado" : "Débito (ajuste)"} maxLength={255}
+            className={`w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ${ring}`} />
         </div>
       </div>
       <div className="flex gap-2">
         <button type="submit" disabled={isPending}
-          className="bg-green-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-60">
-          {isPending ? "Salvando..." : "Confirmar Crédito"}
+          className={`text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-60 ${credito ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"}`}>
+          {isPending ? "Salvando..." : credito ? "Confirmar Crédito" : "Confirmar Débito"}
         </button>
         <button type="button" onClick={onClose}
-          className="text-sm text-neutral-600 border border-neutral-200 px-4 py-2 rounded-lg hover:bg-neutral-50 transition-colors">
+          className="text-sm text-neutral-600 border border-neutral-200 bg-white px-4 py-2 rounded-lg hover:bg-neutral-50 transition-colors">
           Cancelar
         </button>
       </div>
@@ -150,7 +163,7 @@ export function ContasReceberDashboard({ alunos, totalAReceber, totalCredito }: 
   const [busca, setBusca]         = useState("")
   const [filtro, setFiltro]       = useState<"todos" | "debito" | "credito" | "zerado">("todos")
   const [expandido, setExpandido] = useState<string | null>(null)
-  const [addCredito, setAddCredito] = useState<string | null>(null)
+  const [lancando, setLancando] = useState<{ alunoId: string; tipo: "CREDITO" | "DEBITO" } | null>(null)
 
   const lista = useMemo(() => {
     let l = alunos
@@ -168,7 +181,7 @@ export function ContasReceberDashboard({ alunos, totalAReceber, totalCredito }: 
     <main className="max-w-5xl mx-auto px-4 py-8 space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-neutral-900">Contas a Receber</h1>
-        <p className="text-neutral-500 mt-1 text-sm">Gerencie o saldo financeiro dos alunos e adicione créditos antecipados.</p>
+        <p className="text-neutral-500 mt-1 text-sm">Gerencie o saldo financeiro dos alunos: lance créditos (pagamentos) e débitos (cobranças e ajustes).</p>
       </div>
 
       {/* Totais */}
@@ -223,22 +236,33 @@ export function ContasReceberDashboard({ alunos, totalAReceber, totalCredito }: 
               <SaldoBadge saldo={aluno.saldo} />
               <div className="flex gap-2">
                 <button
-                  onClick={() => { setAddCredito(addCredito === aluno.id ? null : aluno.id); setExpandido(null) }}
+                  onClick={() => {
+                    const aberto = lancando?.alunoId === aluno.id && lancando.tipo === "CREDITO"
+                    setLancando(aberto ? null : { alunoId: aluno.id, tipo: "CREDITO" }); setExpandido(null)
+                  }}
                   className="text-xs font-medium px-3 py-1.5 rounded-lg border border-green-200 text-green-700 hover:bg-green-50 transition-colors">
                   + Crédito
                 </button>
                 <button
-                  onClick={() => { setExpandido(expandido === aluno.id ? null : aluno.id); setAddCredito(null) }}
+                  onClick={() => {
+                    const aberto = lancando?.alunoId === aluno.id && lancando.tipo === "DEBITO"
+                    setLancando(aberto ? null : { alunoId: aluno.id, tipo: "DEBITO" }); setExpandido(null)
+                  }}
+                  className="text-xs font-medium px-3 py-1.5 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 transition-colors">
+                  − Débito
+                </button>
+                <button
+                  onClick={() => { setExpandido(expandido === aluno.id ? null : aluno.id); setLancando(null) }}
                   className="text-xs font-medium px-3 py-1.5 rounded-lg border border-neutral-200 text-neutral-600 hover:bg-neutral-50 transition-colors">
                   {expandido === aluno.id ? "Fechar" : `Histórico (${aluno.transacoes.length})`}
                 </button>
               </div>
             </div>
 
-            {/* Formulário de crédito */}
-            {addCredito === aluno.id && (
+            {/* Formulário de crédito / débito */}
+            {lancando?.alunoId === aluno.id && (
               <div className="px-4 pb-4">
-                <AdicionarCreditoForm alunoId={aluno.id} onClose={() => setAddCredito(null)} />
+                <LancamentoForm key={lancando.tipo} alunoId={aluno.id} tipo={lancando.tipo} onClose={() => setLancando(null)} />
               </div>
             )}
 

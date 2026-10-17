@@ -1,0 +1,101 @@
+// Constantes e utilitários compartilhados (client + server) para os dados
+// do professor: séries atendidas e disponibilidade semanal.
+
+export const SERIES_OPCOES = [
+  { key: "FUNDAMENTAL_I",  label: "Fundamental I" },
+  { key: "FUNDAMENTAL_II", label: "Fundamental II" },
+  { key: "ENSINO_MEDIO",   label: "Ensino Médio" },
+  { key: "SUPERIOR",       label: "Superior" },
+  { key: "CONCURSO",       label: "Concurso" },
+] as const
+
+export type SerieKey = (typeof SERIES_OPCOES)[number]["key"]
+
+// Mesmo formato usado em salas (horarios_disponiveis): dia SEG..DOM, HH:MM
+export const DIAS_SEMANA = [
+  { key: "SEG", label: "Segunda", js: 1 },
+  { key: "TER", label: "Terça",   js: 2 },
+  { key: "QUA", label: "Quarta",  js: 3 },
+  { key: "QUI", label: "Quinta",  js: 4 },
+  { key: "SEX", label: "Sexta",   js: 5 },
+  { key: "SAB", label: "Sábado",  js: 6 },
+  { key: "DOM", label: "Domingo", js: 0 },
+] as const
+
+export type DiaKey = (typeof DIAS_SEMANA)[number]["key"]
+export type Disponibilidade = { dia: DiaKey; inicio: string; fim: string }
+
+const HORA_RE = /^([01]\d|2[0-3]):[0-5]\d$/
+const DIA_KEYS = DIAS_SEMANA.map(d => d.key) as readonly string[]
+const SERIE_KEYS = SERIES_OPCOES.map(s => s.key) as readonly string[]
+
+export function serieLabel(key: string) {
+  return SERIES_OPCOES.find(s => s.key === key)?.label ?? key
+}
+
+export function diaLabel(key: string) {
+  return DIAS_SEMANA.find(d => d.key === key)?.label ?? key
+}
+
+function toMin(hhmm: string) {
+  const [h, m] = hhmm.split(":").map(Number)
+  return h * 60 + m
+}
+
+/** Lê o JSON salvo no banco (ou vindo do formulário) e devolve só itens válidos. */
+export function parseSeries(raw: unknown): SerieKey[] {
+  let v = raw
+  if (typeof v === "string") { try { v = JSON.parse(v) } catch { return [] } }
+  if (!Array.isArray(v)) return []
+  return Array.from(new Set(v.filter((s): s is SerieKey => typeof s === "string" && SERIE_KEYS.includes(s))))
+}
+
+/** Lê o JSON de disponibilidade e devolve só faixas válidas (início < fim), ordenadas. */
+export function parseDisponibilidade(raw: unknown): Disponibilidade[] {
+  let v = raw
+  if (typeof v === "string") { try { v = JSON.parse(v) } catch { return [] } }
+  if (!Array.isArray(v)) return []
+  const ordemDia = (d: string) => DIA_KEYS.indexOf(d)
+  return v
+    .filter((h: any) =>
+      h && DIA_KEYS.includes(h.dia) && HORA_RE.test(h.inicio ?? "") && HORA_RE.test(h.fim ?? "") &&
+      toMin(h.inicio) < toMin(h.fim))
+    .map((h: any) => ({ dia: h.dia as DiaKey, inicio: h.inicio as string, fim: h.fim as string }))
+    .sort((a, b) => ordemDia(a.dia) - ordemDia(b.dia) || toMin(a.inicio) - toMin(b.inicio))
+}
+
+/** Texto curto: "Segunda 14:00–18:00 · Terça 13:00–15:00, 18:00–20:00" */
+export function resumoDisponibilidade(disp: Disponibilidade[]) {
+  return DIAS_SEMANA
+    .map(d => {
+      const faixas = disp.filter(h => h.dia === d.key)
+      if (faixas.length === 0) return null
+      return `${d.label} ${faixas.map(f => `${f.inicio}–${f.fim}`).join(", ")}`
+    })
+    .filter(Boolean)
+    .join(" · ")
+}
+
+export type ResultadoDisponibilidade = "DISPONIVEL" | "INDISPONIVEL" | "SEM_CADASTRO"
+
+/**
+ * Verifica se a aula cabe inteira numa faixa de disponibilidade do professor.
+ * `dataHoraLocal` é o valor do <input type="datetime-local"> ("2026-10-20T14:00"),
+ * lido como horário local de Brasília sem conversão de fuso.
+ */
+export function verificarDisponibilidade(
+  disp: Disponibilidade[],
+  dataHoraLocal: string,
+  duracaoMinutos: number,
+): ResultadoDisponibilidade {
+  if (disp.length === 0) return "SEM_CADASTRO"
+  const m = dataHoraLocal.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/)
+  if (!m) return "SEM_CADASTRO"
+  const [, y, mo, d, h, mi] = m.map(Number)
+  const diaJs = new Date(Date.UTC(y, mo - 1, d)).getUTCDay()
+  const dia = DIAS_SEMANA.find(x => x.js === diaJs)!.key
+  const inicio = h * 60 + mi
+  const fim = inicio + duracaoMinutos
+  const cabe = disp.some(f => f.dia === dia && toMin(f.inicio) <= inicio && toMin(f.fim) >= fim)
+  return cabe ? "DISPONIVEL" : "INDISPONIVEL"
+}

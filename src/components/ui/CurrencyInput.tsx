@@ -75,6 +75,9 @@ export function CurrencyInput({
       filtered = int + sep + (dec ?? "").slice(0, 2)
     }
     setDisplay(filtered)
+    // Mantém o valor do formulário atualizado também durante a digitação
+    // (ex.: usuário aperta Enter sem sair do campo)
+    onChange(toNumeric(filtered))
   }
 
   function handleBlur() {

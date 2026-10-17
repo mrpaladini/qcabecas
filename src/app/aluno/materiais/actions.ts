@@ -47,7 +47,7 @@ export async function uploadMaterial(formData: FormData) {
 
   // Anti-IDOR: agendamento deve pertencer ao aluno logado
   const appointment = await prisma.appointment.findFirst({
-    where: { id: appointmentId, alunoId: BigInt(session.user.id), status: "AGENDADO" },
+    where: { id: appointmentId, alunoId: BigInt(session.user.id), status: { in: ["AGENDADO", "PENDENTE"] } },
   })
   if (!appointment) return { success: false, error: "Agendamento não encontrado ou não pertence a você" }
 

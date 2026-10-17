@@ -17,6 +17,7 @@ type Agendamento = {
 }
 
 const STATUS_BADGE: Record<string, string> = {
+  PENDENTE:  "bg-amber-100 text-amber-700",
   AGENDADO:  "bg-blue-100 text-blue-700",
   CONCLUIDO: "bg-green-100 text-green-700",
   CANCELADO: "bg-red-100 text-red-700",
@@ -108,6 +109,7 @@ export function RelatorioCliente({
             className="border border-neutral-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
           >
             <option value="TODOS">Todos os status</option>
+            <option value="PENDENTE">Pendente</option>
             <option value="AGENDADO">Agendado</option>
             <option value="CONCLUIDO">Concluído</option>
           </select>

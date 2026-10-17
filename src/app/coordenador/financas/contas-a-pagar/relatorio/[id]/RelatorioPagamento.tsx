@@ -10,6 +10,14 @@ type EvidenciaItem = {
   valorProfessor: number
 }
 
+type AjusteItem = {
+  id: string
+  tipo: "CREDITO" | "DEBITO"
+  valor: number
+  descricao: string
+  createdAt: string
+}
+
 type Pagamento = {
   id: string
   professorNome: string
@@ -22,6 +30,7 @@ type Pagamento = {
   geradoEm: string
   geradoPor: string
   evidencias: EvidenciaItem[]
+  ajustes?: AjusteItem[]
 }
 
 function fmt(valor: number) {
@@ -126,6 +135,24 @@ export function RelatorioPagamento({ pagamento }: { pagamento: Pagamento }) {
                 </tr>
               ))}
             </tbody>
+            {(pagamento.ajustes?.length ?? 0) > 0 && (
+              <tbody className="divide-y divide-neutral-100 border-t border-neutral-200">
+                <tr className="bg-neutral-50">
+                  <td colSpan={6} className="px-4 py-2 text-xs font-semibold text-neutral-600">Ajustes (débito/crédito)</td>
+                </tr>
+                {pagamento.ajustes!.map(a => (
+                  <tr key={a.id}>
+                    <td className="px-4 py-2 whitespace-nowrap text-neutral-700">{fmtData(a.createdAt)}</td>
+                    <td colSpan={4} className="px-4 py-2 text-neutral-700">
+                      {a.tipo === "CREDITO" ? "Crédito" : "Débito"} — {a.descricao}
+                    </td>
+                    <td className={`px-4 py-2 text-right font-semibold whitespace-nowrap ${a.tipo === "CREDITO" ? "text-green-700" : "text-red-700"}`}>
+                      {a.tipo === "CREDITO" ? "+" : "−"}{fmt(a.valor)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            )}
             <tfoot className="border-t-2 border-neutral-300 bg-neutral-50">
               <tr>
                 <td colSpan={5} className="px-4 py-4 text-sm font-bold text-neutral-700 text-right">

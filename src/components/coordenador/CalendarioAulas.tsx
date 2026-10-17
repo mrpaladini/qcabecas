@@ -31,6 +31,7 @@ const messages = {
 }
 
 const STATUS_COLORS: Record<string, string> = {
+  PENDENTE: "#d97706",
   AGENDADO: "#2563eb",
   CANCELADO: "#dc2626",
   CONCLUIDO: "#16a34a",
@@ -69,7 +70,7 @@ function ModalEvento({ ev, onClose }: { ev: Evento; onClose: () => void }) {
           <div className="flex justify-between"><dt className="text-neutral-500">Início</dt><dd className="font-medium">{ev.start.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</dd></div>
           <div className="flex justify-between"><dt className="text-neutral-500">Fim</dt><dd className="font-medium">{ev.end.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</dd></div>
           <div className="flex justify-between"><dt className="text-neutral-500">Status</dt>
-            <dd><span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${ev.status === "AGENDADO" ? "bg-blue-100 text-blue-700" : ev.status === "CONCLUIDO" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>{ev.status}</span></dd>
+            <dd><span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${ev.status === "PENDENTE" ? "bg-amber-100 text-amber-700" : ev.status === "AGENDADO" ? "bg-blue-100 text-blue-700" : ev.status === "CONCLUIDO" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>{ev.status}</span></dd>
           </div>
         </dl>
         <button onClick={onClose} className="mt-4 w-full bg-neutral-100 text-neutral-700 py-2 rounded-xl text-sm font-medium hover:bg-neutral-200 transition-colors">Fechar</button>
@@ -314,6 +315,7 @@ function GradeSalaHorario({ eventos, salas, data }: { eventos: Evento[]; salas: 
 
 // ─── Tabela Resumo pivot (sala × horário) ────────────────────────────────────
 const STATUS_BADGE_CLS: Record<string, string> = {
+  PENDENTE:  "bg-amber-100 text-amber-700",
   AGENDADO:  "bg-blue-100 text-blue-700",
   CONCLUIDO: "bg-green-100 text-green-700",
   CANCELADO: "bg-red-100 text-red-700",
@@ -391,6 +393,7 @@ function TabelaResumo({ eventos, salas }: { eventos: Evento[]; salas: Sala[] }) 
         <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}
           className="border border-neutral-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500">
           <option value="TODOS">Todos os status</option>
+          <option value="PENDENTE">Pendente</option>
           <option value="AGENDADO">Agendado</option>
           <option value="CONCLUIDO">Concluído</option>
           <option value="CANCELADO">Cancelado</option>

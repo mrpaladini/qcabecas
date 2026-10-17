@@ -43,9 +43,12 @@ function fmtHora(iso: string) {
 export function ContasPagarDashboard({
   aulas,
   historico,
+  ajustes = {},
 }: {
   aulas: AulaItem[]
   historico: HistoricoItem[]
+  /** Saldo de débitos/créditos manuais pendentes por professorId */
+  ajustes?: Record<string, number>
 }) {
   const router = useRouter()
   const [aba, setAba] = useState<"pendentes" | "historico">("pendentes")
@@ -285,6 +288,11 @@ export function ContasPagarDashboard({
                       <p className="text-xs text-neutral-500">
                         {aulasProf.length} aula(s) · {pendentes.length} pendente(s)
                       </p>
+                      {(ajustes[profId] ?? 0) !== 0 && (
+                        <p className={`text-xs font-medium ${ajustes[profId] > 0 ? "text-green-700" : "text-red-700"}`}>
+                          Ajustes pendentes (débito/crédito): {ajustes[profId] > 0 ? "+" : "−"}{fmt(Math.abs(ajustes[profId]))}
+                        </p>
+                      )}
                     </div>
                     <div className="text-right shrink-0">
                       <p className="font-bold text-neutral-900">{fmt(totalProf)}</p>
@@ -417,8 +425,15 @@ export function ContasPagarDashboard({
               <p className="font-semibold text-neutral-800">
                 {aulasSelecionadas[0]?.professorNome}
               </p>
-              <p className="text-neutral-600">{selecionados.size} aula(s) selecionada(s)</p>
-              <p className="text-2xl font-bold text-green-700 mt-2">{fmt(totalSelecionado)}</p>
+              <p className="text-neutral-600">{selecionados.size} aula(s) selecionada(s): {fmt(totalSelecionado)}</p>
+              {professorSelecionado && (ajustes[professorSelecionado] ?? 0) !== 0 && (
+                <p className={ajustes[professorSelecionado] > 0 ? "text-green-700" : "text-red-700"}>
+                  Ajustes pendentes (débito/crédito): {ajustes[professorSelecionado] > 0 ? "+" : "−"}{fmt(Math.abs(ajustes[professorSelecionado]))}
+                </p>
+              )}
+              <p className="text-2xl font-bold text-green-700 mt-2">
+                {fmt(totalSelecionado + (professorSelecionado ? (ajustes[professorSelecionado] ?? 0) : 0))}
+              </p>
             </div>
 
             <div>

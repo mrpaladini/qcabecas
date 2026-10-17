@@ -17,22 +17,30 @@ export async function getOrCreateConta(alunoId: bigint) {
   })
 }
 
-const CreditoSchema = z.object({
+const LancamentoSchema = z.object({
   alunoId:   z.coerce.bigint().positive(),
+  tipo:      z.enum(["CREDITO", "DEBITO"]),
   valor:     z.coerce.number().positive().max(99999),
-  descricao: z.string().min(2).max(255).default("Crédito adiantado"),
+  descricao: z.string().min(2).max(255),
 })
 
-export async function adicionarCredito(formData: FormData) {
+/**
+ * Lançamento manual na conta do aluno.
+ * CREDITO = pagamento/adiantamento do aluno (aumenta o saldo).
+ * DEBITO  = cobrança/ajuste (diminui o saldo — aluno passa a dever).
+ */
+async function lancar(formData: FormData, tipo: "CREDITO" | "DEBITO") {
   const session = await auth()
   requireCoordenador(session)
 
-  const parsed = CreditoSchema.safeParse({
+  const padrao = tipo === "CREDITO" ? "Crédito adiantado" : "Débito (ajuste)"
+  const parsed = LancamentoSchema.safeParse({
     alunoId:   formData.get("alunoId"),
-    valor:     formData.get("valor"),
-    descricao: formData.get("descricao") || "Crédito adiantado",
+    tipo,
+    valor:     String(formData.get("valor") ?? "").replace(",", "."),
+    descricao: formData.get("descricao") || padrao,
   })
-  if (!parsed.success) return { success: false, error: "Dados inválidos" }
+  if (!parsed.success) return { success: false, error: "Dados inválidos: informe um valor maior que zero" }
 
   const { alunoId, valor, descricao } = parsed.data
   const conta = await getOrCreateConta(alunoId)
@@ -41,20 +49,28 @@ export async function adicionarCredito(formData: FormData) {
     await tx.transacaoAluno.create({
       data: {
         contaId:      conta.id,
-        tipo:         "CREDITO",
+        tipo,
         valor,
         descricao,
-        registradoPor: BigInt(session.user.id),
+        registradoPor: BigInt((session as any).user.id),
       },
     })
     await tx.contaAluno.update({
       where: { id: conta.id },
-      data:  { saldo: { increment: valor } },
+      data:  { saldo: tipo === "CREDITO" ? { increment: valor } : { decrement: valor } },
     })
   })
 
   revalidatePath("/coordenador/financas/contas-a-receber")
   return { success: true }
+}
+
+export async function adicionarCredito(formData: FormData) {
+  return lancar(formData, "CREDITO")
+}
+
+export async function adicionarDebito(formData: FormData) {
+  return lancar(formData, "DEBITO")
 }
 
 export async function estornarTransacao(transacaoId: string) {

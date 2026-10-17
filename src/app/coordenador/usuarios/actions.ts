@@ -5,9 +5,10 @@ import { prisma } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import bcrypt from "bcryptjs"
 import { z } from "zod"
-import { Role } from "@prisma/client"
+import { Role, Prisma } from "@prisma/client"
 import { randomBytes } from "crypto"
 import { encryptTemp, decryptTemp } from "@/lib/crypto"
+import { parseSeries, parseDisponibilidade } from "@/lib/professor"
 
 function requireCoordenador(session: any) {
   if (!session?.user || session.user.role !== "COORDENADOR")
@@ -36,6 +37,11 @@ const AlunoExtraSchema = z.object({
   observacoes:        z.string().max(2000).optional(),
 })
 
+const ProfessorExtraSchema = z.object({
+  phone2:        str(20),
+  escolaAtuacao: str(200),
+})
+
 const UsuarioCreateSchema = z.object({
   name:            z.string().min(3).max(150),
   email:           z.string().email(),
@@ -43,7 +49,7 @@ const UsuarioCreateSchema = z.object({
   role:            z.nativeEnum(Role),
   precoPresencial: z.coerce.number().min(0).optional(),
   precoVirtual:    z.coerce.number().min(0).optional(),
-}).merge(AlunoExtraSchema)
+}).merge(AlunoExtraSchema).merge(ProfessorExtraSchema)
 
 const UsuarioUpdateSchema = z.object({
   name:            z.string().min(3).max(150),
@@ -51,7 +57,27 @@ const UsuarioUpdateSchema = z.object({
   phone:           str(20),
   precoPresencial: z.coerce.number().min(0).optional(),
   precoVirtual:    z.coerce.number().min(0).optional(),
-}).merge(AlunoExtraSchema)
+}).merge(AlunoExtraSchema).merge(ProfessorExtraSchema)
+
+function professorFromForm(formData: FormData) {
+  return {
+    phone2:        formData.get("phone2")        || undefined,
+    escolaAtuacao: formData.get("escolaAtuacao") || undefined,
+  }
+}
+
+/** Campos complexos do professor (JSON / checkboxes) — já validados. */
+function professorJsonFromForm(formData: FormData) {
+  const series = parseSeries(formData.get("seriesAtendidas"))
+  const disp   = parseDisponibilidade(formData.get("disponibilidade"))
+  const bool = (k: string) => ["on", "true", "1"].includes(String(formData.get(k) ?? ""))
+  return {
+    seriesAtendidas:  series.length ? series : Prisma.DbNull,
+    disponibilidade:  disp.length ? disp : Prisma.DbNull,
+    atendePresencial: bool("atendePresencial"),
+    atendeOnline:     bool("atendeOnline"),
+  }
+}
 
 function extraFromForm(formData: FormData) {
   return {
@@ -82,6 +108,7 @@ export async function criarUsuario(formData: FormData) {
     precoPresencial: formData.get("precoPresencial") || undefined,
     precoVirtual:    formData.get("precoVirtual") || undefined,
     ...extraFromForm(formData),
+    ...professorFromForm(formData),
   })
   if (!parsed.success) return { success: false, error: "Dados inválidos: " + JSON.stringify(parsed.error.flatten().fieldErrors) }
 
@@ -94,8 +121,9 @@ export async function criarUsuario(formData: FormData) {
   const { name, email, phone, precoPresencial, precoVirtual,
     responsavelNome, cpfResponsavel, responsavelTelefone,
     rua, bairro, cidade, cep, referenciaEndereco,
-    escola, serie, observacoes } = parsed.data
+    escola, serie, observacoes, phone2, escolaAtuacao } = parsed.data
 
+  // created_at (data de cadastro) é preenchido automaticamente pelo banco
   const user = await prisma.user.create({
     data: {
       name, email, phone, role,
@@ -104,17 +132,24 @@ export async function criarUsuario(formData: FormData) {
       consentimentoLgpd: true,
       precoPresencial: precoPresencial ?? null,
       precoVirtual:    precoVirtual ?? null,
-      responsavelNome:     responsavelNome ?? null,
-      cpfResponsavel:      cpfResponsavel ?? null,
-      responsavelTelefone: responsavelTelefone ?? null,
-      rua:                 rua ?? null,
-      bairro:              bairro ?? null,
-      cidade:              cidade ?? null,
-      cep:                 cep ?? null,
-      referenciaEndereco:  referenciaEndereco ?? null,
-      escola:              escola ?? null,
-      serie:               serie ?? null,
-      observacoes:         observacoes ?? null,
+      observacoes:     observacoes ?? null,
+      ...(role === "ALUNO" ? {
+        responsavelNome:     responsavelNome ?? null,
+        cpfResponsavel:      cpfResponsavel ?? null,
+        responsavelTelefone: responsavelTelefone ?? null,
+        rua:                 rua ?? null,
+        bairro:              bairro ?? null,
+        cidade:              cidade ?? null,
+        cep:                 cep ?? null,
+        referenciaEndereco:  referenciaEndereco ?? null,
+        escola:              escola ?? null,
+        serie:               serie ?? null,
+      } : {}),
+      ...(role === "PROFESSOR" ? {
+        phone2:        phone2 ?? null,
+        escolaAtuacao: escolaAtuacao ?? null,
+        ...professorJsonFromForm(formData),
+      } : {}),
     },
   })
 
@@ -134,8 +169,9 @@ export async function atualizarUsuario(id: string, formData: FormData) {
     precoPresencial: formData.get("precoPresencial") || undefined,
     precoVirtual:    formData.get("precoVirtual") || undefined,
     ...extraFromForm(formData),
+    ...professorFromForm(formData),
   })
-  if (!parsed.success) return { success: false, error: "Dados inválidos" }
+  if (!parsed.success) return { success: false, error: "Dados inválidos: verifique nome (mín. 3 letras), e-mail e valores" }
 
   const user = await prisma.user.findUnique({ where: { id: BigInt(id) }, select: { role: true, email: true } })
   if (!user) return { success: false, error: "Usuário não encontrado" }
@@ -148,26 +184,37 @@ export async function atualizarUsuario(id: string, formData: FormData) {
   const { name, email, phone, precoPresencial, precoVirtual,
     responsavelNome, cpfResponsavel, responsavelTelefone,
     rua, bairro, cidade, cep, referenciaEndereco,
-    escola, serie, observacoes } = parsed.data
+    escola, serie, observacoes, phone2, escolaAtuacao } = parsed.data
 
+  // Só grava os campos que pertencem ao perfil do usuário — assim a edição
+  // de um professor nunca apaga dados de aluno e vice-versa.
   await prisma.user.update({
     where: { id: BigInt(id) },
     data: {
       name, email,
       phone:           phone ?? null,
-      precoPresencial: precoPresencial ?? null,
-      precoVirtual:    precoVirtual ?? null,
-      responsavelNome:     responsavelNome ?? null,
-      cpfResponsavel:      cpfResponsavel ?? null,
-      responsavelTelefone: responsavelTelefone ?? null,
-      rua:                 rua ?? null,
-      bairro:              bairro ?? null,
-      cidade:              cidade ?? null,
-      cep:                 cep ?? null,
-      referenciaEndereco:  referenciaEndereco ?? null,
-      escola:              escola ?? null,
-      serie:               serie ?? null,
-      observacoes:         observacoes ?? null,
+      ...(user.role !== "COORDENADOR" ? {
+        precoPresencial: precoPresencial ?? null,
+        precoVirtual:    precoVirtual ?? null,
+        observacoes:     observacoes ?? null,
+      } : {}),
+      ...(user.role === "ALUNO" ? {
+        responsavelNome:     responsavelNome ?? null,
+        cpfResponsavel:      cpfResponsavel ?? null,
+        responsavelTelefone: responsavelTelefone ?? null,
+        rua:                 rua ?? null,
+        bairro:              bairro ?? null,
+        cidade:              cidade ?? null,
+        cep:                 cep ?? null,
+        referenciaEndereco:  referenciaEndereco ?? null,
+        escola:              escola ?? null,
+        serie:               serie ?? null,
+      } : {}),
+      ...(user.role === "PROFESSOR" ? {
+        phone2:        phone2 ?? null,
+        escolaAtuacao: escolaAtuacao ?? null,
+        ...professorJsonFromForm(formData),
+      } : {}),
     },
   })
 
@@ -191,6 +238,68 @@ export async function reativarUsuario(id: string) {
   const session = await auth()
   requireCoordenador(session)
   await prisma.user.update({ where: { id: BigInt(id) }, data: { deletedAt: null } })
+  revalidatePath("/coordenador/alunos")
+  revalidatePath("/coordenador/professores")
+  revalidatePath("/coordenador/coordenadores")
+  return { success: true }
+}
+
+/**
+ * Exclusão definitiva — só é permitida se o usuário não tiver nenhum histórico
+ * (aulas, pagamentos, lançamentos). Com histórico, o caminho é "Desativar",
+ * que preserva todos os dados.
+ */
+export async function excluirUsuario(id: string) {
+  const session = await auth()
+  requireCoordenador(session)
+
+  const userId = BigInt(id)
+  if (String((session as any).user.id) === id) return { success: false, error: "Você não pode excluir o próprio usuário" }
+
+  const u = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      role: true,
+      _count: {
+        select: {
+          appointmentsAsAluno: true,
+          appointmentsAsProfessor: true,
+          appointmentsAsCoordenador: true,
+          materials: true,
+          pagamentosRecebidos: true,
+          pagamentosGerados: true,
+          transacoesRegistradas: true,
+          ajustesProfessor: true,
+          ajustesRegistrados: true,
+        },
+      },
+      contaAluno: { select: { id: true, _count: { select: { transacoes: true } } } },
+    },
+  })
+  if (!u) return { success: false, error: "Usuário não encontrado" }
+
+  const c = u._count
+  const aulas = c.appointmentsAsAluno + c.appointmentsAsProfessor + c.appointmentsAsCoordenador
+  const financeiro = c.pagamentosRecebidos + c.pagamentosGerados + c.transacoesRegistradas +
+    c.ajustesProfessor + c.ajustesRegistrados + (u.contaAluno?._count.transacoes ?? 0)
+  if (aulas > 0 || financeiro > 0 || c.materials > 0) {
+    const partes = [
+      aulas > 0 ? `${aulas} aula(s)` : null,
+      financeiro > 0 ? `${financeiro} lançamento(s) financeiro(s)` : null,
+      c.materials > 0 ? `${c.materials} material(is)` : null,
+    ].filter(Boolean).join(", ")
+    return {
+      success: false,
+      error: `Não é possível excluir: há ${partes} vinculados. Use "Desativar" para manter o histórico.`,
+    }
+  }
+
+  await prisma.$transaction(async tx => {
+    await tx.subjectTeacher.deleteMany({ where: { userId } })
+    if (u.contaAluno) await tx.contaAluno.delete({ where: { id: u.contaAluno.id } })
+    await tx.user.delete({ where: { id: userId } })
+  })
+
   revalidatePath("/coordenador/alunos")
   revalidatePath("/coordenador/professores")
   revalidatePath("/coordenador/coordenadores")

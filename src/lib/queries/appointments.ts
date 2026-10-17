@@ -62,7 +62,7 @@ export async function getUpcomingAppointmentsByAluno(alunoId: number) {
   return prisma.appointment.findMany({
     where: {
       alunoId,
-      status: "AGENDADO",
+      status: { in: ["AGENDADO", "PENDENTE"] },
       dataHora: { gte: new Date() },
     },
     orderBy: { dataHora: "asc" },

@@ -49,7 +49,15 @@ export async function gerarPagamento(
   if (evidencias.length !== ids.length)
     return { success: false, error: "Algumas aulas selecionadas não estão disponíveis para pagamento" }
 
-  const totalValor = evidencias.reduce((acc, e) => acc + Number(e.valorProfessor), 0)
+  // Débitos/créditos manuais ainda não pagos entram neste pagamento
+  const ajustes = await prisma.ajusteProfessor.findMany({
+    where: { professorId: profId, pagamentoId: null },
+  })
+  const totalAulas  = evidencias.reduce((acc, e) => acc + Number(e.valorProfessor), 0)
+  const totalAjuste = ajustes.reduce((acc, a) => acc + (a.tipo === "CREDITO" ? Number(a.valor) : -Number(a.valor)), 0)
+  const totalValor  = Math.round((totalAulas + totalAjuste) * 100) / 100
+  if (totalValor < 0)
+    return { success: false, error: "Os débitos pendentes do professor são maiores que o valor das aulas selecionadas" }
   const datas = evidencias.map(e => e.dataAula).sort((a, b) => a.getTime() - b.getTime())
 
   const pagamento = await prisma.$transaction(async tx => {
@@ -62,9 +70,16 @@ export async function gerarPagamento(
         periodoInicio: datas[0],
         periodoFim:    datas[datas.length - 1],
         observacoes:   observacoes || null,
-        geradoPor:     BigInt(session.user.id),
+        geradoPor:     BigInt((session as any).user.id),
       },
     })
+
+    if (ajustes.length > 0) {
+      await tx.ajusteProfessor.updateMany({
+        where: { id: { in: ajustes.map(a => a.id) }, pagamentoId: null },
+        data:  { pagamentoId: pag.id },
+      })
+    }
 
     await tx.evidencia.updateMany({
       where: { id: { in: ids } },
@@ -91,6 +106,7 @@ export async function getPagamento(id: string) {
       professor: { select: { name: true, email: true } },
       gerador:   { select: { name: true } },
       evidencias: { orderBy: { dataAula: "asc" } },
+      ajustes:    { orderBy: { createdAt: "asc" } },
     },
   })
   if (!pagamento) return null
@@ -114,6 +130,13 @@ export async function getPagamento(id: string) {
       duracaoMinutos: e.duracaoMinutos,
       salaTipo:       e.salaTipo ?? null,
       valorProfessor: Number(e.valorProfessor),
+    })),
+    ajustes: pagamento.ajustes.map(a => ({
+      id:        String(a.id),
+      tipo:      a.tipo,
+      valor:     Number(a.valor),
+      descricao: a.descricao,
+      createdAt: a.createdAt.toISOString(),
     })),
   }
 }

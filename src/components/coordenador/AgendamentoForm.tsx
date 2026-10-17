@@ -1,48 +1,153 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useMemo, useState, useTransition } from "react"
 import { criarAgendamento } from "@/app/coordenador/agendamentos/actions"
 import { CurrencyInput } from "@/components/ui/CurrencyInput"
+import { BuscaSelect, type BuscaOpcao } from "@/components/ui/BuscaSelect"
+import { resumoDisponibilidade, verificarDisponibilidade, type Disponibilidade } from "@/lib/professor"
 
-type Aluno = { id: string; name: string }
-type Professor = { id: string; name: string }
+type Aluno = {
+  id: string
+  name: string
+  email?: string | null
+  responsavelNome?: string | null
+  precoPresencial: string | null
+  precoVirtual: string | null
+}
+type Professor = {
+  id: string
+  name: string
+  disponibilidade: Disponibilidade[]
+  atendePresencial: boolean
+  atendeOnline: boolean
+}
 type Disciplina = { id: number; name: string; professores: Professor[] }
 type Sala = { id: number; name: string; type: string }
 
 const INPUT_CLS = "w-full border border-neutral-300 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
 const INPUT_ERR = "w-full border border-red-400 ring-2 ring-red-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-red-400"
 
+function fmt(v: number) {
+  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+}
+
+/** Valor por aula do cadastro do aluno, conforme a sala (online x presencial). */
+function valorSugerido(aluno: Aluno | undefined, sala: Sala | undefined) {
+  if (!aluno) return { valor: "", origem: null as string | null }
+  const online = sala?.type === "VIRTUAL"
+  const principal = online ? aluno.precoVirtual : aluno.precoPresencial
+  if (principal && Number(principal) > 0) return { valor: Number(principal).toFixed(2), origem: online ? "online" : "presencial" }
+  return { valor: "", origem: null }
+}
+
 export function AgendamentoForm({ alunos, todasDisciplinas, salas }: {
   alunos: Aluno[]
   todasDisciplinas: Disciplina[]
   salas: Sala[]
 }) {
+  const [alunoId, setAlunoId]           = useState("")
   const [disciplinaId, setDisciplinaId] = useState<number | null>(null)
-  const [valorCobrado, setValorCobrado]  = useState("")
-  const [sucesso, setSucesso]           = useState(false)
+  const [professorId, setProfessorId]   = useState("")
+  const [roomId, setRoomId]             = useState("")
+  const [dataHora, setDataHora]         = useState("")
+  const [duracao, setDuracao]           = useState("60")
+  const [status, setStatus]             = useState<"PENDENTE" | "AGENDADO">("PENDENTE")
+  const [valorCobrado, setValorCobrado] = useState("")
+  const [valorAuto, setValorAuto]       = useState("")
+  const [sucesso, setSucesso]           = useState<string | null>(null)
   const [erroGeral, setErroGeral]       = useState<string | null>(null)
   const [camposErro, setCamposErro]     = useState<Record<string, string>>({})
   const [isPending, startTransition]    = useTransition()
+
+  const aluno = alunos.find(a => a.id === alunoId)
+  const sala  = salas.find(s => String(s.id) === roomId)
+  const sugestao = valorSugerido(aluno, sala)
 
   const professoresDaDisciplina = disciplinaId
     ? (todasDisciplinas.find(d => d.id === disciplinaId)?.professores ?? [])
     : []
 
+  /** Atualiza o valor com o do cadastro. `forcar` = troca de aluno (sempre sobrescreve);
+   *  troca de sala só sobrescreve se o valor ainda for o sugerido (não foi editado à mão). */
+  function aplicarValor(novoAluno: Aluno | undefined, novaSala: Sala | undefined, forcar: boolean) {
+    const s = valorSugerido(novoAluno, novaSala)
+    if (forcar || valorCobrado === "" || valorCobrado === valorAuto) setValorCobrado(s.valor)
+    setValorAuto(s.valor)
+  }
+
+  const alunoOpcoes: BuscaOpcao[] = useMemo(() => alunos.map(a => ({
+    id: a.id,
+    label: a.name,
+    sublabel: [a.responsavelNome ? `Resp.: ${a.responsavelNome}` : null, a.email].filter(Boolean).join(" · ") || undefined,
+    badge: !a.precoPresencial && !a.precoVirtual ? { text: "sem valor", tone: "amber" as const } : undefined,
+  })), [alunos])
+
+  const duracaoMin = Number(duracao)
+  const salaOnline = sala?.type === "VIRTUAL"
+
+  function situacao(p: Professor) {
+    const modalidadeDefinida = p.atendeOnline || p.atendePresencial
+    if (sala && modalidadeDefinida && (salaOnline ? !p.atendeOnline : !p.atendePresencial))
+      return { text: salaOnline ? "Não atende online" : "Não atende presencial", tone: "amber" as const, ordem: 2 }
+    if (!dataHora) return null
+    const r = verificarDisponibilidade(p.disponibilidade, dataHora, duracaoMin)
+    if (r === "DISPONIVEL")   return { text: "✓ Disponível", tone: "green" as const, ordem: 0 }
+    if (r === "INDISPONIVEL") return { text: "Fora do horário", tone: "red" as const, ordem: 3 }
+    return { text: "Sem disponibilidade cadastrada", tone: "neutral" as const, ordem: 1 }
+  }
+
+  const professorOpcoes: BuscaOpcao[] = useMemo(() => {
+    return professoresDaDisciplina
+      .map(p => ({ p, s: situacao(p) }))
+      .sort((a, b) => (a.s?.ordem ?? 1) - (b.s?.ordem ?? 1) || a.p.name.localeCompare(b.p.name))
+      .map(({ p, s }) => ({
+        id: p.id,
+        label: p.name,
+        sublabel: p.disponibilidade.length ? resumoDisponibilidade(p.disponibilidade) : undefined,
+        badge: s ? { text: s.text, tone: s.tone } : undefined,
+      }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [professoresDaDisciplina, dataHora, duracaoMin, roomId])
+
+  const professorEscolhido = professoresDaDisciplina.find(p => p.id === professorId)
+  const situacaoEscolhido = professorEscolhido ? situacao(professorEscolhido) : null
+  const disponiveisAgora = dataHora
+    ? professoresDaDisciplina.filter(p => verificarDisponibilidade(p.disponibilidade, dataHora, duracaoMin) === "DISPONIVEL").length
+    : null
+
+  function resetar() {
+    setAlunoId(""); setDisciplinaId(null); setProfessorId(""); setRoomId("")
+    setDataHora(""); setDuracao("60"); setStatus("PENDENTE")
+    setValorCobrado(""); setValorAuto("")
+  }
+
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setErroGeral(null)
     setCamposErro({})
-    setSucesso(false)
+    setSucesso(null)
+
+    const erros: Record<string, string> = {}
+    if (!alunoId) erros.alunoId = "Aluno: selecione um aluno da lista"
+    if (!professorId) erros.professorId = "Professor: selecione um professor da lista"
+    if (!valorCobrado || Number(valorCobrado) <= 0) erros.valorCobrado = "Valor cobrado: informe o valor da aula"
+    if (Object.keys(erros).length) {
+      setCamposErro(erros)
+      setErroGeral(Object.values(erros)[0])
+      return
+    }
 
     const formData = new FormData(e.currentTarget)
     formData.set("valorCobrado", valorCobrado)
+    formData.set("status", status)
 
     startTransition(async () => {
       const res = await criarAgendamento(formData)
       if (res.success) {
-        setSucesso(true)
-        setValorCobrado("")
-        setDisciplinaId(null)
+        setSucesso(status === "PENDENTE"
+          ? "⏳ Aula registrada como Pendente. Confirme na lista abaixo quando aluno e professor confirmarem."
+          : "✅ Aula agendada com sucesso! Notificações enviadas por e-mail.")
+        resetar()
         ;(e.target as HTMLFormElement).reset()
       } else {
         if ("fieldErrors" in res && res.fieldErrors) setCamposErro(res.fieldErrors as Record<string, string>)
@@ -62,9 +167,7 @@ export function AgendamentoForm({ alunos, todasDisciplinas, salas }: {
       <h2 className="text-lg font-semibold text-neutral-900 mb-5">Nova Aula</h2>
 
       {sucesso && (
-        <div className="mb-4 bg-green-50 border border-green-200 rounded-xl p-3 text-sm text-green-800 font-medium">
-          ✅ Aula agendada com sucesso! Notificações enviadas por e-mail.
-        </div>
+        <div className="mb-4 bg-green-50 border border-green-200 rounded-xl p-3 text-sm text-green-800 font-medium">{sucesso}</div>
       )}
 
       {erroGeral && !Object.keys(camposErro).length && (
@@ -83,18 +186,23 @@ export function AgendamentoForm({ alunos, todasDisciplinas, salas }: {
       <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
         <div>
-          <label htmlFor="alunoId" className="block text-sm font-medium text-neutral-700 mb-1.5">Aluno <span className="text-red-500">*</span></label>
-          <select id="alunoId" name="alunoId" required className={fieldCls("alunoId")}>
-            <option value="">Selecione o aluno</option>
-            {alunos.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
+          <label htmlFor="alunoBusca" className="block text-sm font-medium text-neutral-700 mb-1.5">Aluno <span className="text-red-500">*</span></label>
+          <BuscaSelect id="alunoBusca" name="alunoId" opcoes={alunoOpcoes} value={alunoId}
+            onChange={id => { setAlunoId(id); aplicarValor(alunos.find(a => a.id === id), sala, true) }}
+            placeholder="Digite o nome do aluno…" hasError={!!camposErro.alunoId}
+            vazioTexto="Nenhum aluno encontrado" />
           <FieldError field="alunoId" />
         </div>
 
         <div>
           <label htmlFor="subjectId" className="block text-sm font-medium text-neutral-700 mb-1.5">Disciplina <span className="text-red-500">*</span></label>
           <select id="subjectId" name="subjectId" required value={disciplinaId ?? ""}
-            onChange={e => setDisciplinaId(e.target.value ? Number(e.target.value) : null)}
+            onChange={e => {
+              const novo = e.target.value ? Number(e.target.value) : null
+              setDisciplinaId(novo)
+              const profs = novo ? (todasDisciplinas.find(d => d.id === novo)?.professores ?? []) : []
+              if (!profs.some(p => p.id === professorId)) setProfessorId("")
+            }}
             className={fieldCls("subjectId")}>
             <option value="">Selecione a disciplina</option>
             {todasDisciplinas.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
@@ -103,36 +211,16 @@ export function AgendamentoForm({ alunos, todasDisciplinas, salas }: {
         </div>
 
         <div>
-          <label htmlFor="professorId" className="block text-sm font-medium text-neutral-700 mb-1.5">Professor <span className="text-red-500">*</span></label>
-          <select id="professorId" name="professorId" required disabled={!disciplinaId}
-            className={`${fieldCls("professorId")} disabled:bg-neutral-50 disabled:text-neutral-400`}>
-            <option value="">{!disciplinaId ? "Selecione a disciplina primeiro" : "Selecione o professor"}</option>
-            {professoresDaDisciplina.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          {disciplinaId && professoresDaDisciplina.length === 0 && (
-            <p className="text-xs text-amber-600 mt-1">⚠ Nenhum professor associado a esta disciplina.</p>
-          )}
-          <FieldError field="professorId" />
-        </div>
-
-        <div>
-          <label htmlFor="roomId" className="block text-sm font-medium text-neutral-700 mb-1.5">Sala de Aula</label>
-          <select id="roomId" name="roomId" className={fieldCls("roomId")}>
-            <option value="">Sem sala definida</option>
-            {salas.map(s => <option key={s.id} value={s.id}>{s.type === "VIRTUAL" ? "💻" : "🏫"} {s.name}</option>)}
-          </select>
-          <FieldError field="roomId" />
-        </div>
-
-        <div>
           <label htmlFor="dataHora" className="block text-sm font-medium text-neutral-700 mb-1.5">Data e Hora <span className="text-red-500">*</span></label>
-          <input id="dataHora" name="dataHora" type="datetime-local" required className={fieldCls("dataHora")} />
+          <input id="dataHora" name="dataHora" type="datetime-local" required value={dataHora}
+            onChange={e => setDataHora(e.target.value)} className={fieldCls("dataHora")} />
           <FieldError field="dataHora" />
         </div>
 
         <div>
           <label htmlFor="duracaoMinutos" className="block text-sm font-medium text-neutral-700 mb-1.5">Duração</label>
-          <select id="duracaoMinutos" name="duracaoMinutos" className={fieldCls("duracaoMinutos")}>
+          <select id="duracaoMinutos" name="duracaoMinutos" value={duracao} onChange={e => setDuracao(e.target.value)}
+            className={fieldCls("duracaoMinutos")}>
             <option value="60">1 hora</option>
             <option value="90">1h30min</option>
             <option value="120">2 horas</option>
@@ -143,14 +231,78 @@ export function AgendamentoForm({ alunos, todasDisciplinas, salas }: {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-neutral-700 mb-1.5">Valor cobrado ao aluno</label>
+          <label htmlFor="roomId" className="block text-sm font-medium text-neutral-700 mb-1.5">Sala de Aula</label>
+          <select id="roomId" name="roomId" value={roomId}
+            onChange={e => { setRoomId(e.target.value); aplicarValor(aluno, salas.find(s => String(s.id) === e.target.value), false) }}
+            className={fieldCls("roomId")}>
+            <option value="">Sem sala definida</option>
+            {salas.map(s => <option key={s.id} value={s.id}>{s.type === "VIRTUAL" ? "💻" : "🏫"} {s.name}</option>)}
+          </select>
+          <FieldError field="roomId" />
+        </div>
+
+        <div>
+          <label htmlFor="profBusca" className="block text-sm font-medium text-neutral-700 mb-1.5">Professor <span className="text-red-500">*</span></label>
+          <BuscaSelect id="profBusca" name="professorId" opcoes={professorOpcoes} value={professorId}
+            onChange={setProfessorId} disabled={!disciplinaId} hasError={!!camposErro.professorId}
+            placeholder={!disciplinaId ? "Selecione a disciplina primeiro" : "Digite o nome do professor…"}
+            vazioTexto="Nenhum professor encontrado" />
+          {disciplinaId && professoresDaDisciplina.length === 0 && (
+            <p className="text-xs text-amber-600 mt-1">⚠ Nenhum professor associado a esta disciplina.</p>
+          )}
+          {disciplinaId && professoresDaDisciplina.length > 0 && disponiveisAgora !== null && !professorId && (
+            <p className={`text-xs mt-1 ${disponiveisAgora > 0 ? "text-green-700" : "text-amber-600"}`}>
+              {disponiveisAgora > 0
+                ? `${disponiveisAgora} professor(es) disponível(is) neste horário — aparecem primeiro na lista.`
+                : "⚠ Nenhum professor desta disciplina tem disponibilidade cadastrada para este horário."}
+            </p>
+          )}
+          {situacaoEscolhido && (
+            <p className={`text-xs mt-1 ${
+              situacaoEscolhido.tone === "green" ? "text-green-700" : situacaoEscolhido.tone === "neutral" ? "text-neutral-500" : "text-amber-600"
+            }`}>
+              {situacaoEscolhido.tone === "green"
+                ? "✓ Professor disponível neste horário."
+                : situacaoEscolhido.tone === "neutral"
+                  ? "Professor sem disponibilidade cadastrada — confirme com ele."
+                  : `⚠ ${situacaoEscolhido.text}. Você ainda pode agendar, mas confirme com o professor.`}
+            </p>
+          )}
+          <FieldError field="professorId" />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-neutral-700 mb-1.5">Valor cobrado ao aluno <span className="text-red-500">*</span></label>
           <CurrencyInput
             value={valorCobrado}
             onChange={setValorCobrado}
             placeholder="0,00"
             hasError={!!camposErro.valorCobrado}
           />
+          {aluno && (
+            sugestao.origem ? (
+              <p className="text-xs text-neutral-500 mt-1">
+                Valor do cadastro do aluno ({sugestao.origem}): {fmt(Number(sugestao.valor))}
+                {valorCobrado && valorCobrado !== sugestao.valor && (
+                  <button type="button" onClick={() => setValorCobrado(sugestao.valor)}
+                    className="ml-2 text-primary-600 hover:underline font-medium">usar este</button>
+                )}
+              </p>
+            ) : (
+              <p className="text-xs text-amber-600 mt-1">
+                ⚠ Aluno sem valor {salaOnline ? "online" : "presencial"} cadastrado — informe o valor.
+              </p>
+            )
+          )}
           <FieldError field="valorCobrado" />
+        </div>
+
+        <div>
+          <label htmlFor="status" className="block text-sm font-medium text-neutral-700 mb-1.5">Situação</label>
+          <select id="status" value={status} onChange={e => setStatus(e.target.value as any)} className={INPUT_CLS}>
+            <option value="PENDENTE">⏳ Pendente — aguardando confirmação</option>
+            <option value="AGENDADO">✅ Agendado — aluno e professor confirmaram</option>
+          </select>
         </div>
 
         <div className="md:col-span-2">
@@ -163,7 +315,7 @@ export function AgendamentoForm({ alunos, todasDisciplinas, salas }: {
         <div className="md:col-span-2">
           <button type="submit" disabled={isPending}
             className="bg-primary-600 text-white font-semibold px-6 py-2.5 rounded-xl hover:bg-primary-700 transition-colors text-sm disabled:opacity-60">
-            {isPending ? "Agendando..." : "Agendar Aula + Notificar por E-mail"}
+            {isPending ? "Salvando..." : status === "PENDENTE" ? "Registrar como Pendente + Notificar" : "Agendar Aula + Notificar por E-mail"}
           </button>
         </div>
       </form>
