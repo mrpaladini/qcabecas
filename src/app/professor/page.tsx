@@ -13,6 +13,11 @@ export default async function ProfessorDashboard() {
   const proximas = agendamentos.filter(
     (a) => (a.status === "AGENDADO" || a.status === "PENDENTE") && new Date(a.dataHora) >= new Date()
   )
+  // Aulas já passadas que têm material — o professor continua podendo baixar
+  const anterioresComMaterial = agendamentos
+    .filter(a => !proximas.includes(a) && a.status !== "CANCELADO" && a.materials.length > 0)
+    .sort((a, b) => new Date(b.dataHora).getTime() - new Date(a.dataHora).getTime())
+    .slice(0, 15)
 
   return (
     <main className="max-w-4xl mx-auto px-4 py-6 sm:py-8 space-y-8">
@@ -75,17 +80,7 @@ export default async function ProfessorDashboard() {
                     <p className="text-xs font-semibold text-neutral-600 mb-2">
                       📎 Materiais enviados pelo aluno ({apt.materials.length})
                     </p>
-                    <ul className="space-y-1">
-                      {apt.materials.map((m) => (
-                        <li key={m.id} className="flex items-center gap-2 text-xs text-neutral-600">
-                          <span>📄</span>
-                          <span>{m.originalName}</span>
-                          <span className="text-neutral-400">
-                            ({(m.sizeBytes / 1024).toFixed(0)} KB)
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
+                    <ListaMateriais materiais={apt.materials} />
                   </div>
                 ) : (
                   <p className="text-xs text-neutral-400 mt-2 italic">
@@ -97,6 +92,68 @@ export default async function ProfessorDashboard() {
           </div>
         )}
       </section>
+
+      {anterioresComMaterial.length > 0 && (
+        <section>
+          <h2 className="text-lg font-semibold text-neutral-900 mb-4">
+            Materiais de aulas anteriores
+          </h2>
+          <div className="space-y-3">
+            {anterioresComMaterial.map((apt) => (
+              <div key={apt.id} className="bg-neutral-50 border border-neutral-200 rounded-2xl p-4">
+                <p className="text-sm font-medium text-neutral-800">
+                  {apt.disciplina} — {apt.aluno.name}
+                </p>
+                <p className="text-xs text-neutral-500 mb-2">
+                  {new Date(apt.dataHora).toLocaleString("pt-BR", {
+                    dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo",
+                  })}
+                </p>
+                <ListaMateriais materiais={apt.materials} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
     </main>
+  )
+}
+
+type MaterialItem = { id: bigint; originalName: string; mimetype: string; sizeBytes: number }
+
+function fmtTamanho(bytes: number) {
+  return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`
+}
+
+/** Lista de arquivos com links de download (rota protegida /api/materiais/[id]). */
+function ListaMateriais({ materiais }: { materiais: MaterialItem[] }) {
+  return (
+    <ul className="space-y-1.5">
+      {materiais.map((m) => {
+        const visualizavel = ["application/pdf", "image/jpeg", "image/png"].includes(m.mimetype)
+        const href = `/api/materiais/${m.id}`
+        return (
+          <li key={String(m.id)} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-neutral-600">
+            <span aria-hidden="true">📄</span>
+            <a href={href} download className="font-medium text-primary-700 hover:underline break-all">
+              {m.originalName}
+            </a>
+            <span className="text-neutral-400">({fmtTamanho(m.sizeBytes)})</span>
+            <span className="flex gap-1.5 ml-auto">
+              {visualizavel && (
+                <a href={`${href}?ver=1`} target="_blank" rel="noopener noreferrer"
+                  className="border border-neutral-200 bg-white px-2 py-1 rounded-md hover:bg-neutral-100">
+                  Abrir
+                </a>
+              )}
+              <a href={href} download
+                className="border border-primary-200 bg-white text-primary-700 px-2 py-1 rounded-md hover:bg-primary-50 font-medium">
+                ⬇ Baixar
+              </a>
+            </span>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
