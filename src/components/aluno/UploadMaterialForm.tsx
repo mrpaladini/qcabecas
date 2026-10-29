@@ -89,7 +89,7 @@ export function UploadMaterialForm({ agendamentos }: { agendamentos: Agendamento
             <ul className="space-y-1">
               {agendamentoAtual.materiais.map(m => (
                 <li key={m.id} className="flex items-center justify-between text-xs text-neutral-600">
-                  <a href={`/api/materiais/${m.id}`} download className="truncate text-primary-700 hover:underline">{m.originalName}</a>
+                  <a href={`/api/materiais/${m.id}/${encodeURIComponent(m.originalName)}`} className="truncate text-primary-700 hover:underline">{m.originalName}</a>
                   <span className="text-neutral-400 ml-2 whitespace-nowrap">{formatBytes(m.sizeBytes)}</span>
                 </li>
               ))}

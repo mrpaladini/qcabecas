@@ -84,7 +84,8 @@ export async function uploadMaterial(formData: FormData) {
   const originalName = sanitizeFilename(file.name)
   const storedName   = `${randomUUID()}${ALLOWED[realMime]}`
   const uploadDir    = join(process.cwd(), "uploads", String(appointmentId))
-  const filepath     = join(String(appointmentId), storedName)
+  // Sempre com "/" — funciona igual no Windows (local) e no Linux (Hostinger)
+  const filepath     = `${appointmentId}/${storedName}`
 
   try {
     await mkdir(uploadDir, { recursive: true })

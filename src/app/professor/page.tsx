@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import { getAppointmentsByProfessor } from "@/lib/queries/appointments"
+import { urlMaterial } from "@/lib/download-material"
 
 // Server Component — dados filtrados pelo professor logado, nunca expostos a outros
 export default async function ProfessorDashboard() {
@@ -131,22 +132,22 @@ function ListaMateriais({ materiais }: { materiais: MaterialItem[] }) {
     <ul className="space-y-1.5">
       {materiais.map((m) => {
         const visualizavel = ["application/pdf", "image/jpeg", "image/png"].includes(m.mimetype)
-        const href = `/api/materiais/${m.id}`
+        const href = urlMaterial(m.id, m.originalName)
         return (
           <li key={String(m.id)} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-neutral-600">
             <span aria-hidden="true">📄</span>
-            <a href={href} download className="font-medium text-primary-700 hover:underline break-all">
+            <a href={href} className="font-medium text-primary-700 hover:underline break-all">
               {m.originalName}
             </a>
             <span className="text-neutral-400">({fmtTamanho(m.sizeBytes)})</span>
             <span className="flex gap-1.5 ml-auto">
               {visualizavel && (
-                <a href={`${href}?ver=1`} target="_blank" rel="noopener noreferrer"
+                <a href={urlMaterial(m.id, m.originalName, true)} target="_blank" rel="noopener noreferrer"
                   className="border border-neutral-200 bg-white px-2 py-1 rounded-md hover:bg-neutral-100">
                   Abrir
                 </a>
               )}
-              <a href={href} download
+              <a href={href}
                 className="border border-primary-200 bg-white text-primary-700 px-2 py-1 rounded-md hover:bg-primary-50 font-medium">
                 ⬇ Baixar
               </a>
