@@ -5,6 +5,7 @@ import { atualizarAgendamento, confirmarAgendamento } from "@/app/coordenador/ag
 import { CurrencyInput } from "@/components/ui/CurrencyInput"
 
 type Sala = { id: number; name: string; type: string }
+type Coordenador = { id: string; name: string }
 
 type Agendamento = {
   id: string
@@ -19,6 +20,8 @@ type Agendamento = {
   salaId: number | null
   observacoes: string | null
   valorCobrado: string | null
+  coordenadorId: string
+  coordenador: string
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -53,7 +56,11 @@ function FieldError({ camposErro, field }: { camposErro: Record<string, string>;
   return <p className="text-xs text-red-600 mt-1">{camposErro[field]}</p>
 }
 
-export function AgendamentoCRUD({ agendamentos, salas }: { agendamentos: Agendamento[]; salas: Sala[] }) {
+export function AgendamentoCRUD({ agendamentos, salas, coordenadores = [] }: {
+  agendamentos: Agendamento[]
+  salas: Sala[]
+  coordenadores?: Coordenador[]
+}) {
   const [editingId, setEditingId]       = useState<string | null>(null)
   const [editData, setEditData]         = useState<Record<string, any>>({})
   const [camposErro, setCamposErro]     = useState<Record<string, string>>({})
@@ -66,7 +73,7 @@ export function AgendamentoCRUD({ agendamentos, salas }: { agendamentos: Agendam
   const norm = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
   const lista = agendamentos.filter(a =>
     (filtro === "TODOS" || a.status === filtro) &&
-    (!busca || norm(`${a.aluno} ${a.professor} ${a.disciplina}`).includes(norm(busca))))
+    (!busca || norm(`${a.aluno} ${a.professor} ${a.disciplina} ${a.coordenador}`).includes(norm(busca))))
 
   function handleConfirmar(id: string) {
     setErroLista(p => { const n = { ...p }; delete n[id]; return n })
@@ -87,6 +94,7 @@ export function AgendamentoCRUD({ agendamentos, salas }: { agendamentos: Agendam
       roomId:         apt.salaId ? String(apt.salaId) : "",
       observacoes:    apt.observacoes ?? "",
       valorCobrado:   apt.valorCobrado ?? "",
+      coordenadorId:  apt.coordenadorId,
     })
   }
 
@@ -100,6 +108,7 @@ export function AgendamentoCRUD({ agendamentos, salas }: { agendamentos: Agendam
     fd.set("roomId",         editData.roomId)
     fd.set("observacoes",    editData.observacoes)
     fd.set("valorCobrado",   editData.valorCobrado)
+    fd.set("coordenadorId",  editData.coordenadorId ?? "")
 
     startTransition(async () => {
       const res = await atualizarAgendamento(id, fd)
@@ -123,9 +132,9 @@ export function AgendamentoCRUD({ agendamentos, salas }: { agendamentos: Agendam
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-3">
         <input type="search" value={busca} onChange={e => setBusca(e.target.value)}
-          placeholder="Buscar por aluno, professor ou disciplina…" aria-label="Buscar agendamento"
-          className="flex-1 min-w-56 border border-neutral-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
-        <div className="flex rounded-lg overflow-hidden border border-neutral-200 text-xs font-medium">
+          placeholder="Buscar por aluno, professor, disciplina ou coordenador…" aria-label="Buscar agendamento"
+          className="flex-1 min-w-0 w-full sm:w-auto sm:min-w-56 border border-neutral-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+        <div className="flex flex-wrap rounded-lg overflow-hidden border border-neutral-200 text-xs font-medium">
           {([["TODOS", "Todos"], ["PENDENTE", "Pendentes"], ["AGENDADO", "Agendados"], ["CONCLUIDO", "Concluídos"], ["CANCELADO", "Cancelados"]] as const).map(([v, l]) => (
             <button key={v} type="button" onClick={() => setFiltro(v)}
               className={`px-3 py-1.5 transition-colors ${filtro === v ? "bg-primary-600 text-white" : "bg-white text-neutral-600 hover:bg-neutral-50"}`}>
@@ -150,6 +159,7 @@ export function AgendamentoCRUD({ agendamentos, salas }: { agendamentos: Agendam
                     {apt.disciplina} — <span className="text-neutral-700">{apt.aluno}</span>
                   </p>
                   <p className="text-sm text-neutral-500">Prof. {apt.professor}</p>
+                  <p className="text-xs text-neutral-500">Coordenador: <span className="font-medium text-neutral-700">{apt.coordenador}</span></p>
                   <p className="text-sm text-neutral-500">
                     {new Date(apt.dataHora).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
                     {" · "}{apt.duracaoMinutos}min
@@ -176,7 +186,7 @@ export function AgendamentoCRUD({ agendamentos, salas }: { agendamentos: Agendam
                     <p className="text-xs text-neutral-400 italic mt-0.5">{apt.observacoes}</p>
                   )}
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
                   <span className={`text-xs font-semibold px-3 py-1 rounded-full ${STATUS_BADGE[apt.status] ?? "bg-neutral-100 text-neutral-600"}`}>
                     {STATUS_LABEL[apt.status] ?? apt.status}
                   </span>
@@ -196,7 +206,7 @@ export function AgendamentoCRUD({ agendamentos, salas }: { agendamentos: Agendam
             ) : (
               /* ─── Edição ─── */
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-1">
                   <p className="text-sm font-semibold text-neutral-700">
                     Editando: <span className="text-neutral-900">{apt.disciplina} — {apt.aluno}</span>
                   </p>
@@ -274,6 +284,19 @@ export function AgendamentoCRUD({ agendamentos, salas }: { agendamentos: Agendam
                     <FieldError camposErro={camposErro} field="valorCobrado" />
                   </div>
 
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-600 mb-1">Coordenador que acompanha</label>
+                    <select value={editData.coordenadorId} onChange={e => setEditData(p => ({ ...p, coordenadorId: e.target.value }))}
+                      className={fieldCls(camposErro, "coordenadorId")}>
+                      {/* garante que o atual apareça mesmo se estiver inativo */}
+                      {!coordenadores.some(c => c.id === apt.coordenadorId) && (
+                        <option value={apt.coordenadorId}>{apt.coordenador}</option>
+                      )}
+                      {coordenadores.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                    <FieldError camposErro={camposErro} field="coordenadorId" />
+                  </div>
+
                   <div className="md:col-span-2">
                     <label className="block text-xs font-medium text-neutral-600 mb-1">Observações</label>
                     <textarea rows={2} value={editData.observacoes}
@@ -282,6 +305,13 @@ export function AgendamentoCRUD({ agendamentos, salas }: { agendamentos: Agendam
                       placeholder="Instruções especiais para esta aula..." />
                   </div>
                 </div>
+
+                {editData.status === "CANCELADO" && apt.status !== "CANCELADO" && (
+                  <p className="text-xs text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                    Aula cancelada não gera cobrança ao aluno nem pagamento ao professor.
+                    {apt.status === "CONCLUIDO" && " O débito já lançado na conta do aluno será estornado automaticamente."}
+                  </p>
+                )}
 
                 <div className="flex gap-2">
                   <button onClick={() => handleSalvar(apt.id)} disabled={isPending}

@@ -1,7 +1,7 @@
 import { signIn } from "@/lib/auth"
 import { AuthError } from "next-auth"
 import { redirect } from "next/navigation"
-import { AniversarioBadge } from "@/components/ui/AniversarioBadge"
+import Image from "next/image"
 
 // Server Action de login — processa no servidor, sem expor lógica ao cliente
 async function loginAction(formData: FormData) {
@@ -36,16 +36,12 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const hasError = !!params.error
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-neutral-50 px-4">
-      <div className="bg-white rounded-2xl shadow-lg border border-neutral-100 p-8 w-full max-w-md">
+    <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center bg-neutral-50 px-4 py-8">
+      <div className="bg-white rounded-2xl shadow-lg border border-neutral-100 p-6 sm:p-8 w-full max-w-md">
         {/* Logo e badge de 10 anos */}
         <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-3 mb-2">
-            <span className="text-2xl font-extrabold text-primary-700 tracking-tight">
-              Quebra Cabeças
-            </span>
-            <AniversarioBadge size="sm" />
-          </div>
+          <Image src="/images/logo-qc10.png" alt="Quebra Cabeças — 10 Anos" width={1001} height={258}
+            priority className="mx-auto h-14 w-auto mb-3" />
           <p className="text-neutral-500 text-sm">Acesse o portal educacional</p>
         </div>
 

@@ -23,6 +23,7 @@ type Professor = {
 }
 type Disciplina = { id: number; name: string; professores: Professor[] }
 type Sala = { id: number; name: string; type: string }
+type Coordenador = { id: string; name: string }
 
 const INPUT_CLS = "w-full border border-neutral-300 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
 const INPUT_ERR = "w-full border border-red-400 ring-2 ring-red-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-red-400"
@@ -40,10 +41,13 @@ function valorSugerido(aluno: Aluno | undefined, sala: Sala | undefined) {
   return { valor: "", origem: null }
 }
 
-export function AgendamentoForm({ alunos, todasDisciplinas, salas }: {
+export function AgendamentoForm({ alunos, todasDisciplinas, salas, coordenadores = [], coordenadorPadrao = "" }: {
   alunos: Aluno[]
   todasDisciplinas: Disciplina[]
   salas: Sala[]
+  coordenadores?: Coordenador[]
+  /** Coordenador logado — pré-selecionado como responsável pela aula */
+  coordenadorPadrao?: string
 }) {
   const [alunoId, setAlunoId]           = useState("")
   const [disciplinaId, setDisciplinaId] = useState<number | null>(null)
@@ -54,6 +58,7 @@ export function AgendamentoForm({ alunos, todasDisciplinas, salas }: {
   const [status, setStatus]             = useState<"PENDENTE" | "AGENDADO">("PENDENTE")
   const [valorCobrado, setValorCobrado] = useState("")
   const [valorAuto, setValorAuto]       = useState("")
+  const [coordenadorId, setCoordenadorId] = useState(coordenadorPadrao)
   const [sucesso, setSucesso]           = useState<string | null>(null)
   const [erroGeral, setErroGeral]       = useState<string | null>(null)
   const [camposErro, setCamposErro]     = useState<Record<string, string>>({})
@@ -118,7 +123,7 @@ export function AgendamentoForm({ alunos, todasDisciplinas, salas }: {
   function resetar() {
     setAlunoId(""); setDisciplinaId(null); setProfessorId(""); setRoomId("")
     setDataHora(""); setDuracao("60"); setStatus("PENDENTE")
-    setValorCobrado(""); setValorAuto("")
+    setValorCobrado(""); setValorAuto(""); setCoordenadorId(coordenadorPadrao)
   }
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -140,6 +145,7 @@ export function AgendamentoForm({ alunos, todasDisciplinas, salas }: {
     const formData = new FormData(e.currentTarget)
     formData.set("valorCobrado", valorCobrado)
     formData.set("status", status)
+    if (coordenadorId) formData.set("coordenadorId", coordenadorId)
 
     startTransition(async () => {
       const res = await criarAgendamento(formData)
@@ -163,7 +169,7 @@ export function AgendamentoForm({ alunos, todasDisciplinas, salas }: {
   }
 
   return (
-    <div className="bg-white border border-neutral-200 rounded-2xl p-6">
+    <div className="bg-white border border-neutral-200 rounded-2xl p-4 sm:p-6">
       <h2 className="text-lg font-semibold text-neutral-900 mb-5">Nova Aula</h2>
 
       {sucesso && (
@@ -305,6 +311,17 @@ export function AgendamentoForm({ alunos, todasDisciplinas, salas }: {
           </select>
         </div>
 
+        <div>
+          <label htmlFor="coordenadorId" className="block text-sm font-medium text-neutral-700 mb-1.5">Coordenador que acompanha</label>
+          <select id="coordenadorId" value={coordenadorId} onChange={e => setCoordenadorId(e.target.value)}
+            className={fieldCls("coordenadorId")}>
+            {coordenadores.length === 0 && <option value="">—</option>}
+            {coordenadores.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <p className="text-xs text-neutral-500 mt-1">Pode ser alterado depois, em Editar.</p>
+          <FieldError field="coordenadorId" />
+        </div>
+
         <div className="md:col-span-2">
           <label htmlFor="observacoes" className="block text-sm font-medium text-neutral-700 mb-1.5">Observações</label>
           <textarea id="observacoes" name="observacoes" rows={2}
@@ -314,7 +331,7 @@ export function AgendamentoForm({ alunos, todasDisciplinas, salas }: {
 
         <div className="md:col-span-2">
           <button type="submit" disabled={isPending}
-            className="bg-primary-600 text-white font-semibold px-6 py-2.5 rounded-xl hover:bg-primary-700 transition-colors text-sm disabled:opacity-60">
+            className="w-full sm:w-auto bg-primary-600 text-white font-semibold px-6 py-2.5 rounded-xl hover:bg-primary-700 transition-colors text-sm disabled:opacity-60">
             {isPending ? "Salvando..." : status === "PENDENTE" ? "Registrar como Pendente + Notificar" : "Agendar Aula + Notificar por E-mail"}
           </button>
         </div>

@@ -9,6 +9,9 @@ import { Role, Prisma } from "@prisma/client"
 import { randomBytes } from "crypto"
 import { encryptTemp, decryptTemp } from "@/lib/crypto"
 import { parseSeries, parseDisponibilidade } from "@/lib/professor"
+import { registrarAuditoria, quem, fmtMoeda } from "@/lib/audit"
+
+const PAPEL: Record<string, string> = { ALUNO: "aluno", PROFESSOR: "professor", COORDENADOR: "coordenador" }
 
 function requireCoordenador(session: any) {
   if (!session?.user || session.user.role !== "COORDENADOR")
@@ -153,6 +156,9 @@ export async function criarUsuario(formData: FormData) {
     },
   })
 
+  await registrarAuditoria(session, "USUARIO_CRIADO", "Usuario", user.id,
+    `${quem(session)} cadastrou ${PAPEL[role] ?? "usuário"} ${name} (${email})`)
+
   const path = role === "ALUNO" ? "/coordenador/alunos" : role === "PROFESSOR" ? "/coordenador/professores" : "/coordenador/coordenadores"
   revalidatePath(path)
   return { success: true, data: { id: String(user.id), senhaGerada: senhaPlain } }
@@ -173,7 +179,7 @@ export async function atualizarUsuario(id: string, formData: FormData) {
   })
   if (!parsed.success) return { success: false, error: "Dados inválidos: verifique nome (mín. 3 letras), e-mail e valores" }
 
-  const user = await prisma.user.findUnique({ where: { id: BigInt(id) }, select: { role: true, email: true } })
+  const user = await prisma.user.findUnique({ where: { id: BigInt(id) }, select: { role: true, email: true, name: true, precoPresencial: true, precoVirtual: true } })
   if (!user) return { success: false, error: "Usuário não encontrado" }
 
   if (parsed.data.email !== user.email) {
@@ -218,6 +224,18 @@ export async function atualizarUsuario(id: string, formData: FormData) {
     },
   })
 
+  const mud: string[] = []
+  if (user.name !== name) mud.push(`nome ${user.name} → ${name}`)
+  if (user.email !== email) mud.push(`e-mail ${user.email} → ${email}`)
+  if (user.role !== "COORDENADOR") {
+    if (Number(user.precoPresencial ?? 0) !== Number(precoPresencial ?? 0))
+      mud.push(`valor presencial ${fmtMoeda(Number(user.precoPresencial ?? 0))} → ${fmtMoeda(Number(precoPresencial ?? 0))}`)
+    if (Number(user.precoVirtual ?? 0) !== Number(precoVirtual ?? 0))
+      mud.push(`valor online ${fmtMoeda(Number(user.precoVirtual ?? 0))} → ${fmtMoeda(Number(precoVirtual ?? 0))}`)
+  }
+  await registrarAuditoria(session, "USUARIO_ALTERADO", "Usuario", id,
+    `${quem(session)} alterou o cadastro do ${PAPEL[user.role] ?? "usuário"} ${name}` + (mud.length ? `: ${mud.join("; ")}` : ""))
+
   revalidatePath("/coordenador/alunos")
   revalidatePath("/coordenador/professores")
   revalidatePath("/coordenador/coordenadores")
@@ -227,7 +245,9 @@ export async function atualizarUsuario(id: string, formData: FormData) {
 export async function desativarUsuario(id: string) {
   const session = await auth()
   requireCoordenador(session)
-  await prisma.user.update({ where: { id: BigInt(id) }, data: { deletedAt: new Date() } })
+  const desat = await prisma.user.update({ where: { id: BigInt(id) }, data: { deletedAt: new Date() } })
+  await registrarAuditoria(session, "USUARIO_DESATIVADO", "Usuario", id,
+    `${quem(session)} desativou o ${PAPEL[desat.role] ?? "usuário"} ${desat.name}`)
   revalidatePath("/coordenador/alunos")
   revalidatePath("/coordenador/professores")
   revalidatePath("/coordenador/coordenadores")
@@ -237,7 +257,9 @@ export async function desativarUsuario(id: string) {
 export async function reativarUsuario(id: string) {
   const session = await auth()
   requireCoordenador(session)
-  await prisma.user.update({ where: { id: BigInt(id) }, data: { deletedAt: null } })
+  const reat = await prisma.user.update({ where: { id: BigInt(id) }, data: { deletedAt: null } })
+  await registrarAuditoria(session, "USUARIO_REATIVADO", "Usuario", id,
+    `${quem(session)} reativou o ${PAPEL[reat.role] ?? "usuário"} ${reat.name}`)
   revalidatePath("/coordenador/alunos")
   revalidatePath("/coordenador/professores")
   revalidatePath("/coordenador/coordenadores")
@@ -260,6 +282,7 @@ export async function excluirUsuario(id: string) {
     where: { id: userId },
     select: {
       role: true,
+      name: true,
       _count: {
         select: {
           appointmentsAsAluno: true,
@@ -299,6 +322,8 @@ export async function excluirUsuario(id: string) {
     if (u.contaAluno) await tx.contaAluno.delete({ where: { id: u.contaAluno.id } })
     await tx.user.delete({ where: { id: userId } })
   })
+  await registrarAuditoria(session, "USUARIO_EXCLUIDO", "Usuario", id,
+    `${quem(session)} excluiu definitivamente o ${PAPEL[u.role] ?? "usuário"} ${u.name}`)
 
   revalidatePath("/coordenador/alunos")
   revalidatePath("/coordenador/professores")
@@ -311,6 +336,8 @@ export async function regerarSenha(id: string) {
   requireCoordenador(session)
   const senhaPlain   = gerarSenha()
   const passwordHash = await bcrypt.hash(senhaPlain, 12)
-  await prisma.user.update({ where: { id: BigInt(id) }, data: { passwordHash, tempPassword: encryptTemp(senhaPlain) } })
+  const alvo = await prisma.user.update({ where: { id: BigInt(id) }, data: { passwordHash, tempPassword: encryptTemp(senhaPlain) } })
+  await registrarAuditoria(session, "SENHA_REGERADA", "Usuario", id,
+    `${quem(session)} gerou nova senha para o ${PAPEL[alvo.role] ?? "usuário"} ${alvo.name}`)
   return { success: true, data: { senhaGerada: senhaPlain } }
 }

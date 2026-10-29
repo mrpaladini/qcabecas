@@ -29,7 +29,7 @@ export default async function AlunoDashboard() {
   )
 
   return (
-    <main className="max-w-4xl mx-auto px-4 py-8 space-y-8">
+    <main className="max-w-4xl mx-auto px-4 py-6 sm:py-8 space-y-8">
       <div>
         <h1 className="text-2xl font-bold text-neutral-900">
           Olá, {session.user.name?.split(" ")[0]}! 👋
@@ -39,7 +39,7 @@ export default async function AlunoDashboard() {
 
       {/* Ação rápida */}
       {proximas.length > 0 && (
-        <div className="bg-primary-50 border border-primary-100 rounded-2xl p-5 flex items-center justify-between">
+        <div className="bg-primary-50 border border-primary-100 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <p className="font-semibold text-primary-800">Enviar material para uma aula</p>
             <p className="text-sm text-primary-600 mt-0.5">
@@ -73,8 +73,8 @@ export default async function AlunoDashboard() {
           <div className="space-y-3">
             {proximas.map(apt => (
               <div key={String(apt.id)}
-                className="bg-white border border-neutral-200 rounded-2xl p-5 flex items-start justify-between shadow-sm">
-                <div className="space-y-1">
+                className="bg-white border border-neutral-200 rounded-2xl p-4 sm:p-5 flex flex-wrap items-start justify-between gap-3 shadow-sm">
+                <div className="space-y-1 min-w-0">
                   <p className="font-semibold text-neutral-900">
                     {apt.subject?.name ?? apt.disciplina}
                   </p>
@@ -96,7 +96,7 @@ export default async function AlunoDashboard() {
                     </p>
                   )}
                 </div>
-                <div className="flex flex-col items-end gap-2">
+                <div className="flex sm:flex-col items-center sm:items-end gap-3 sm:gap-2">
                   {apt.status === "PENDENTE" ? (
                     <span className="bg-amber-100 text-amber-700 text-xs font-semibold px-3 py-1 rounded-full">
                       A confirmar
@@ -124,7 +124,7 @@ export default async function AlunoDashboard() {
           <div className="space-y-3">
             {historico.slice(0, 5).map(apt => (
               <div key={String(apt.id)}
-                className="bg-neutral-50 border border-neutral-200 rounded-2xl p-4 flex items-center justify-between">
+                className="bg-neutral-50 border border-neutral-200 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <p className="text-sm font-medium text-neutral-700">
                     {apt.subject?.name ?? apt.disciplina}

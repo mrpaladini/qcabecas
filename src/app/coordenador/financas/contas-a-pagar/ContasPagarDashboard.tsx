@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { gerarPagamento } from "./actions"
+import { gerarPagamento, editarValorAula } from "./actions"
 
 type AulaItem = {
   evidenciaId: string
@@ -62,6 +62,39 @@ export function ContasPagarDashboard({
   const [obs, setObs] = useState("")
   const [erro, setErro] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+  // Edição do valor de uma aula pendente
+  const [editando, setEditando] = useState<AulaItem | null>(null)
+  const [novoValor, setNovoValor] = useState("")
+  const [motivo, setMotivo] = useState("")
+  const [erroEdicao, setErroEdicao] = useState<string | null>(null)
+
+  function abrirEdicao(aula: AulaItem) {
+    setEditando(aula)
+    setNovoValor(aula.valorProfessor.toFixed(2).replace(".", ","))
+    setMotivo("")
+    setErroEdicao(null)
+  }
+
+  function salvarEdicao() {
+    if (!editando) return
+    // "1.234,56" ou "85,5" (vírgula decimal) — ou "85.50" (ponto decimal)
+    const txt = novoValor.trim()
+    const num = Number(txt.includes(",") ? txt.replace(/\./g, "").replace(",", ".") : txt)
+    if (novoValor.trim() === "" || isNaN(num) || num < 0) {
+      setErroEdicao("Informe um valor válido (ex.: 85,00)")
+      return
+    }
+    setErroEdicao(null)
+    startTransition(async () => {
+      const res = await editarValorAula(editando.evidenciaId, num, motivo.trim() || undefined)
+      if (res.success) {
+        setEditando(null)
+        router.refresh()
+      } else {
+        setErroEdicao(res.error ?? "Erro ao salvar")
+      }
+    })
+  }
 
   const professores = useMemo(() => {
     const map = new Map<string, string>()
@@ -165,7 +198,7 @@ export function ContasPagarDashboard({
   const totalPago     = aulas.filter(a => a.pago).reduce((acc, a) => acc + a.valorProfessor, 0)
 
   return (
-    <main className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+    <main className="max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-neutral-900">Contas a Pagar</h1>
         <p className="text-neutral-500 mt-1 text-sm">Gerencie o pagamento dos professores por aulas concluídas.</p>
@@ -191,10 +224,10 @@ export function ContasPagarDashboard({
       </div>
 
       {/* Abas */}
-      <div className="flex gap-1 bg-neutral-100 rounded-xl p-1 w-fit">
+      <div className="flex gap-1 bg-neutral-100 rounded-xl p-1 w-full sm:w-fit">
         {([["pendentes", "Aulas por Pagar"], ["historico", "Histórico de Pagamentos"]] as const).map(([v, l]) => (
           <button key={v} onClick={() => setAba(v)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${aba === v ? "bg-white shadow-sm text-neutral-900" : "text-neutral-500 hover:text-neutral-700"}`}>
+            className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors ${aba === v ? "bg-white shadow-sm text-neutral-900" : "text-neutral-500 hover:text-neutral-700"}`}>
             {l}
           </button>
         ))}
@@ -306,8 +339,8 @@ export function ContasPagarDashboard({
                   </div>
 
                   {aberto && (
-                    <div className="border-t border-neutral-100">
-                      <table className="w-full text-xs">
+                    <div className="border-t border-neutral-100 overflow-x-auto">
+                      <table className="w-full min-w-[640px] text-xs">
                         <thead className="bg-neutral-50">
                           <tr>
                             <th className="w-8 px-3 py-2" />
@@ -345,8 +378,17 @@ export function ContasPagarDashboard({
                               <td className="px-3 py-2 text-neutral-400">
                                 {aula.salaTipo === "PRESENCIAL" ? "🏫" : aula.salaTipo === "VIRTUAL" ? "💻" : "—"}
                               </td>
-                              <td className="px-3 py-2 text-right font-semibold text-neutral-800">
+                              <td className="px-3 py-2 text-right font-semibold text-neutral-800 whitespace-nowrap">
                                 {fmt(aula.valorProfessor)}
+                                {!aula.pago && (
+                                  <button type="button"
+                                    onClick={e => { e.stopPropagation(); abrirEdicao(aula) }}
+                                    title="Ajustar valor desta aula"
+                                    aria-label={`Ajustar valor da aula de ${aula.alunoNome}`}
+                                    className="ml-2 text-primary-600 hover:text-primary-800 border border-primary-200 hover:bg-primary-50 rounded-md px-1.5 py-0.5 text-[11px] font-medium">
+                                    ✎ Editar
+                                  </button>
+                                )}
                               </td>
                               <td className="px-3 py-2 text-center">
                                 {aula.pago ? (
@@ -408,6 +450,47 @@ export function ContasPagarDashboard({
               </a>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Modal: ajustar valor da aula */}
+      {editando && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4">
+            <h2 className="text-lg font-bold text-neutral-900">Ajustar valor da aula</h2>
+            <div className="bg-neutral-50 rounded-xl p-3 text-sm text-neutral-700 space-y-0.5">
+              <p className="font-semibold">{editando.professorNome}</p>
+              <p>{editando.disciplina} — {editando.alunoNome}</p>
+              <p className="text-neutral-500">{fmtData(editando.dataAula)} às {fmtHora(editando.dataAula)} · {editando.duracaoMinutos}min</p>
+              <p className="text-neutral-500">Valor atual: <span className="font-semibold text-neutral-800">{fmt(editando.valorProfessor)}</span></p>
+            </div>
+            {erroEdicao && (
+              <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700">{erroEdicao}</div>
+            )}
+            <div>
+              <label htmlFor="novoValor" className="block text-xs font-medium text-neutral-600 mb-1">Novo valor a pagar (R$)</label>
+              <input id="novoValor" inputMode="decimal" value={novoValor} autoFocus
+                onChange={e => setNovoValor(e.target.value.replace(/[^\d,.]/g, ""))}
+                className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="0,00" />
+            </div>
+            <div>
+              <label htmlFor="motivo" className="block text-xs font-medium text-neutral-600 mb-1">Motivo (opcional — fica na auditoria)</label>
+              <input id="motivo" value={motivo} maxLength={200} onChange={e => setMotivo(e.target.value)}
+                className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="Ex.: aula terminou 30 min antes" />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button onClick={salvarEdicao} disabled={isPending}
+                className="flex-1 bg-primary-600 text-white font-semibold py-2.5 rounded-xl hover:bg-primary-700 transition-colors text-sm disabled:opacity-60">
+                {isPending ? "Salvando..." : "Salvar valor"}
+              </button>
+              <button onClick={() => setEditando(null)}
+                className="px-4 text-sm text-neutral-600 border border-neutral-200 rounded-xl hover:bg-neutral-50 transition-colors">
+                Cancelar
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

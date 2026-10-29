@@ -48,7 +48,7 @@ function fmtHora(iso: string) {
 
 export function RelatorioPagamento({ pagamento }: { pagamento: Pagamento }) {
   return (
-    <main className="max-w-4xl mx-auto px-6 py-8 space-y-6">
+    <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-6">
 
       {/* Ações — ocultas na impressão */}
       <div className="flex flex-wrap items-center gap-3 print:hidden">

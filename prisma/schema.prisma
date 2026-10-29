@@ -52,6 +52,7 @@ model User {
   transacoesRegistradas     TransacaoAluno[]     @relation("RegistradorTransacoes")
   ajustesProfessor          AjusteProfessor[]    @relation("ProfessorAjustes")
   ajustesRegistrados        AjusteProfessor[]    @relation("RegistradorAjustes")
+  auditLogs                 AuditLog[]
 
   @@index([role])
   @@index([deletedAt])
@@ -280,6 +281,28 @@ model AjusteProfessor {
   @@index([pagamentoId], map: "idx_ajustes_pagamento")
   @@index([registradoPor], map: "idx_ajustes_registrador")
   @@map("ajustes_professor")
+}
+
+/// Trilha de auditoria: cada ação executada por um operador no sistema.
+/// userNome/userRole são cópias do momento da ação (o histórico não muda
+/// se o usuário for renomeado ou excluído).
+model AuditLog {
+  id         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  userId     BigInt?  @map("user_id") @db.UnsignedBigInt
+  userNome   String   @map("user_nome") @db.VarChar(150)
+  userRole   String?  @map("user_role") @db.VarChar(20)
+  acao       String   @db.VarChar(60)
+  entidade   String   @db.VarChar(40)
+  entidadeId String?  @map("entidade_id") @db.VarChar(40)
+  descricao  String   @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt], map: "idx_audit_created")
+  @@index([userId], map: "idx_audit_user")
+  @@index([acao], map: "idx_audit_acao")
+  @@index([entidade], map: "idx_audit_entidade")
+  @@map("audit_logs")
 }
 
 /// Perfil de acesso do usuário no portal.

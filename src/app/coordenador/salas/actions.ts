@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
+import { registrarAuditoria, quem } from "@/lib/audit"
 
 function requireCoordenador(session: any) {
   if (!session?.user || session.user.role !== "COORDENADOR") throw new Error("Acesso negado")
@@ -48,12 +49,14 @@ export async function criarSala(formData: FormData) {
 
   const horarios = parseHorarios(formData.get("horariosDisponiveis") as string | null)
 
-  await prisma.room.create({
+  const sala = await prisma.room.create({
     data: {
       ...parsed.data,
       horariosDisponiveis: horarios ?? undefined,
     },
   })
+  await registrarAuditoria(session, "SALA_CRIADA", "Sala", sala.id,
+    `${quem(session)} cadastrou a sala "${sala.name}" (${sala.type === "VIRTUAL" ? "online" : "presencial"})`)
   revalidatePath("/coordenador/salas")
   return { success: true }
 }
@@ -79,6 +82,8 @@ export async function atualizarSala(id: number, formData: FormData) {
       horariosDisponiveis: horarios ?? null,
     },
   })
+  await registrarAuditoria(session, "SALA_ALTERADA", "Sala", id,
+    `${quem(session)} alterou a sala "${parsed.data.name}"`)
   revalidatePath("/coordenador/salas")
   return { success: true }
 }
@@ -87,7 +92,9 @@ export async function toggleAtivoSala(id: number, ativo: boolean) {
   const session = await auth()
   requireCoordenador(session)
 
-  await prisma.room.update({ where: { id }, data: { active: ativo } })
+  const sala = await prisma.room.update({ where: { id }, data: { active: ativo } })
+  await registrarAuditoria(session, "SALA_ALTERADA", "Sala", id,
+    `${quem(session)} ${ativo ? "ativou" : "desativou"} a sala "${sala.name}"`)
   revalidatePath("/coordenador/salas")
   return { success: true }
 }
@@ -96,7 +103,8 @@ export async function excluirSala(id: number) {
   const session = await auth()
   requireCoordenador(session)
 
-  await prisma.room.update({ where: { id }, data: { deletedAt: new Date(), active: false } })
+  const sala = await prisma.room.update({ where: { id }, data: { deletedAt: new Date(), active: false } })
+  await registrarAuditoria(session, "SALA_EXCLUIDA", "Sala", id, `${quem(session)} excluiu a sala "${sala.name}"`)
   revalidatePath("/coordenador/salas")
   return { success: true }
 }

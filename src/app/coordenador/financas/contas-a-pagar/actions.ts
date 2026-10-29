@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
+import { registrarAuditoria, quem, primeiroNome, fmtMoeda, fmtDataHoraAudit } from "@/lib/audit"
 
 function requireCoordenador(session: any) {
   if (!session?.user || session.user.role !== "COORDENADOR") throw new Error("Acesso negado")
@@ -92,6 +93,12 @@ export async function gerarPagamento(
     return pag
   })
 
+  const fmtD = (d: Date) => d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })
+  await registrarAuditoria(session, "FINANCEIRO_PAGAMENTO", "PagamentoProfessor", pagamento.id,
+    `${quem(session)} gerou pagamento de ${fmtMoeda(totalValor)} ao professor ${primeiroNome(professor.name)} ` +
+    `(${evidencias.length} aula(s) de ${fmtD(datas[0])} a ${fmtD(datas[datas.length - 1])}` +
+    (ajustes.length ? `; ${ajustes.length} ajuste(s) incluído(s)` : "") + ")")
+
   revalidatePath("/coordenador/financas/contas-a-pagar")
   return { success: true, pagamentoId: String(pagamento.id) }
 }
@@ -139,4 +146,46 @@ export async function getPagamento(id: string) {
       createdAt: a.createdAt.toISOString(),
     })),
   }
+}
+
+const EditarValorSchema = z.object({
+  evidenciaId: z.coerce.bigint().positive(),
+  valor:       z.coerce.number().min(0, "O valor não pode ser negativo").max(99999, "Valor muito alto"),
+  motivo:      z.string().trim().max(200).optional(),
+})
+
+/**
+ * Ajusta o valor a pagar ao professor por uma aula ainda NÃO paga.
+ * A alteração fica registrada na Auditoria (valor anterior → novo + motivo).
+ */
+export async function editarValorAula(evidenciaId: string, valor: string | number, motivo?: string) {
+  const session = await auth()
+  requireCoordenador(session)
+
+  const parsed = EditarValorSchema.safeParse({
+    evidenciaId,
+    valor: typeof valor === "number" ? valor : String(valor ?? "").replace(/[^\d,.-]/g, "").replace(",", "."),
+    motivo: motivo || undefined,
+  })
+  if (!parsed.success) return { success: false as const, error: parsed.error.issues[0]?.message ?? "Valor inválido" }
+  const { evidenciaId: id, valor: novoValor, motivo: mot } = parsed.data
+
+  const evid = await prisma.evidencia.findUnique({ where: { id } })
+  if (!evid) return { success: false as const, error: "Aula não encontrada" }
+  if (evid.pagoProfessor) return { success: false as const, error: "Esta aula já foi paga — use um ajuste de débito/crédito no cadastro do professor" }
+  if (evid.status !== "CONCLUIDO") return { success: false as const, error: "Só aulas concluídas podem ter o valor ajustado" }
+
+  const anterior = Number(evid.valorProfessor)
+  const arredondado = Math.round(novoValor * 100) / 100
+  if (anterior === arredondado) return { success: true as const }
+
+  await prisma.evidencia.update({ where: { id }, data: { valorProfessor: arredondado } })
+
+  await registrarAuditoria(session, "FINANCEIRO_VALOR_AULA", "Evidencia", id,
+    `${quem(session)} alterou o valor a pagar ao professor ${primeiroNome(evid.professorNome)} pela aula de ` +
+    `${evid.disciplina} do aluno ${primeiroNome(evid.alunoNome)} em ${fmtDataHoraAudit(evid.dataAula)}: ` +
+    `${fmtMoeda(anterior)} → ${fmtMoeda(arredondado)}` + (mot ? ` (motivo: ${mot})` : ""))
+
+  revalidatePath("/coordenador/financas/contas-a-pagar")
+  return { success: true as const }
 }

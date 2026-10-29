@@ -6,6 +6,7 @@ import { writeFile, mkdir } from "fs/promises"
 import { join } from "path"
 import { randomUUID } from "crypto"
 import { fileTypeFromBuffer } from "file-type"
+import { registrarAuditoria, quem, fmtDataHoraAudit } from "@/lib/audit"
 
 // Tipos aceitos: PDF, Word, Excel, JPG, PNG, TXT
 const ALLOWED: Record<string, string> = {
@@ -103,6 +104,9 @@ export async function uploadMaterial(formData: FormData) {
       sizeBytes: file.size,
     },
   })
+
+  await registrarAuditoria(session, "MATERIAL_ENVIADO", "Material", appointmentId,
+    `${quem(session)} enviou o material "${originalName}" para a aula de ${appointment.disciplina} em ${fmtDataHoraAudit(appointment.dataHora)}`)
 
   return { success: true, data: { originalName } }
 }

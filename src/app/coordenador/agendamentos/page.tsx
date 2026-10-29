@@ -9,7 +9,7 @@ export default async function AgendamentosPage() {
   const session = await auth()
   if ((session?.user as any)?.role !== "COORDENADOR") redirect("/unauthorized")
 
-  const [alunos, disciplinas, salas, agendamentos] = await Promise.all([
+  const [alunos, disciplinas, salas, agendamentos, coordenadores] = await Promise.all([
     prisma.user.findMany({
       where: { role: "ALUNO", deletedAt: null },
       orderBy: { name: "asc" },
@@ -43,9 +43,17 @@ export default async function AgendamentosPage() {
         professor: { select: { name: true } },
         room:      { select: { id: true, name: true, type: true } },
         subject:   { select: { name: true } },
+        coordenador: { select: { id: true, name: true } },
       },
     }),
+    prisma.user.findMany({
+      where: { role: "COORDENADOR", deletedAt: null },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
   ])
+  const coordenadoresData = coordenadores.map(c => ({ id: String(c.id), name: c.name }))
+  const coordenadorPadrao = String((session?.user as any)?.id ?? "")
 
   const alunosData = alunos.map(a => ({
     id: String(a.id),
@@ -83,6 +91,8 @@ export default async function AgendamentosPage() {
     salaId:         apt.room?.id ?? null,
     observacoes:    apt.observacoes ?? null,
     valorCobrado:   apt.valorCobrado?.toString() ?? null,
+    coordenadorId:  String(apt.coordenador.id),
+    coordenador:    apt.coordenador.name,
   }))
 
   const totais = {
@@ -93,13 +103,14 @@ export default async function AgendamentosPage() {
   }
 
   return (
-    <main className="max-w-5xl mx-auto px-4 py-8 space-y-10">
+    <main className="max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-8 sm:space-y-10">
       <div>
         <h1 className="text-2xl font-bold text-neutral-900">Agendamentos</h1>
         <p className="text-neutral-500 mt-1">Agende aulas e gerencie a agenda do portal.</p>
       </div>
 
-      <AgendamentoForm alunos={alunosData} todasDisciplinas={disciplinasData} salas={salasData} />
+      <AgendamentoForm alunos={alunosData} todasDisciplinas={disciplinasData} salas={salasData}
+        coordenadores={coordenadoresData} coordenadorPadrao={coordenadorPadrao} />
 
       <section className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -114,7 +125,7 @@ export default async function AgendamentosPage() {
           </div>
         </div>
 
-        <AgendamentoCRUD agendamentos={agendamentosData} salas={salasData} />
+        <AgendamentoCRUD agendamentos={agendamentosData} salas={salasData} coordenadores={coordenadoresData} />
       </section>
     </main>
   )

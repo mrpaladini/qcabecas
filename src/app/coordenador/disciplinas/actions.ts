@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
+import { registrarAuditoria, quem } from "@/lib/audit"
 
 function requireCoordenador(session: any) {
   if (!session?.user || session.user.role !== "COORDENADOR") throw new Error("Acesso negado")
@@ -40,6 +41,8 @@ export async function criarDisciplina(formData: FormData) {
     },
   })
 
+  await registrarAuditoria(session, "DISCIPLINA_CRIADA", "Disciplina", disciplina.id,
+    `${quem(session)} cadastrou a disciplina "${name}"` + (professorIds?.length ? ` com ${professorIds.length} professor(es)` : ""))
   revalidatePath("/coordenador/disciplinas")
   return { success: true, data: { id: disciplina.id } }
 }
@@ -71,6 +74,8 @@ export async function atualizarDisciplina(id: number, formData: FormData) {
     })
   }
 
+  await registrarAuditoria(session, "DISCIPLINA_ALTERADA", "Disciplina", id,
+    `${quem(session)} alterou a disciplina "${name}" (${professorIds?.length ?? 0} professor(es) vinculados)`)
   revalidatePath("/coordenador/disciplinas")
   return { success: true }
 }
@@ -79,7 +84,8 @@ export async function excluirDisciplina(id: number) {
   const session = await auth()
   requireCoordenador(session)
 
-  await prisma.subject.update({ where: { id }, data: { deletedAt: new Date() } })
+  const disc = await prisma.subject.update({ where: { id }, data: { deletedAt: new Date() } })
+  await registrarAuditoria(session, "DISCIPLINA_EXCLUIDA", "Disciplina", id, `${quem(session)} excluiu a disciplina "${disc.name}"`)
   revalidatePath("/coordenador/disciplinas")
   return { success: true }
 }
@@ -95,6 +101,9 @@ export async function atualizarProfessoresDisciplina(subjectId: number, professo
     })
   }
 
+  const disc = await prisma.subject.findUnique({ where: { id: subjectId }, select: { name: true } })
+  await registrarAuditoria(session, "DISCIPLINA_ALTERADA", "Disciplina", subjectId,
+    `${quem(session)} atualizou os professores da disciplina "${disc?.name ?? subjectId}" (${professorIds.length} vinculado(s))`)
   revalidatePath("/coordenador/disciplinas")
   return { success: true }
 }

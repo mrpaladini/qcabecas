@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
+import { registrarAuditoria, quem, primeiroNome, fmtMoeda } from "@/lib/audit"
 
 function requireCoordenador(session: any) {
   if (!session?.user || session.user.role !== "COORDENADOR") throw new Error("Acesso negado")
@@ -38,10 +39,10 @@ export async function lancarAjusteProfessor(formData: FormData) {
   }
 
   const { professorId, tipo, valor, descricao } = parsed.data
-  const professor = await prisma.user.findFirst({ where: { id: professorId, role: "PROFESSOR" }, select: { id: true } })
+  const professor = await prisma.user.findFirst({ where: { id: professorId, role: "PROFESSOR" }, select: { id: true, name: true } })
   if (!professor) return { success: false, error: "Professor não encontrado" }
 
-  await prisma.ajusteProfessor.create({
+  const ajuste = await prisma.ajusteProfessor.create({
     data: {
       professorId,
       tipo,
@@ -50,6 +51,10 @@ export async function lancarAjusteProfessor(formData: FormData) {
       registradoPor: BigInt((session as any).user.id),
     },
   })
+
+  await registrarAuditoria(session, "FINANCEIRO_AJUSTE_PROF", "AjusteProfessor", ajuste.id,
+    `${quem(session)} lançou ${tipo === "CREDITO" ? "crédito" : "débito"} de ${fmtMoeda(valor)} ao professor ` +
+    `${primeiroNome(professor.name)} (${descricao})`)
 
   revalidatePath("/coordenador/professores")
   revalidatePath("/coordenador/financas/contas-a-pagar")
@@ -61,11 +66,18 @@ export async function estornarAjusteProfessor(ajusteId: string) {
   const session = await auth()
   requireCoordenador(session)
 
-  const ajuste = await prisma.ajusteProfessor.findUnique({ where: { id: BigInt(ajusteId) } })
+  const ajuste = await prisma.ajusteProfessor.findUnique({
+    where: { id: BigInt(ajusteId) },
+    include: { professor: { select: { name: true } } },
+  })
   if (!ajuste) return { success: false, error: "Lançamento não encontrado" }
   if (ajuste.pagamentoId) return { success: false, error: "Este lançamento já faz parte de um pagamento gerado e não pode ser estornado" }
 
   await prisma.ajusteProfessor.delete({ where: { id: ajuste.id } })
+
+  await registrarAuditoria(session, "FINANCEIRO_ESTORNO_PROF", "AjusteProfessor", ajuste.id,
+    `${quem(session)} estornou ${ajuste.tipo === "CREDITO" ? "crédito" : "débito"} de ${fmtMoeda(Number(ajuste.valor))} ` +
+    `do professor ${primeiroNome(ajuste.professor.name)} (${ajuste.descricao})`)
 
   revalidatePath("/coordenador/professores")
   revalidatePath("/coordenador/financas/contas-a-pagar")

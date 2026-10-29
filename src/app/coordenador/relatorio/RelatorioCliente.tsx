@@ -71,7 +71,8 @@ export function RelatorioCliente({
     return lista
   }, [agendamentos, busca, filtroStatus, dataInicio, dataFim])
 
-  const totalHoras = filtrados.reduce((acc, a) => acc + a.duracaoMinutos / 60, 0)
+  // Aulas canceladas não contam como horas dadas
+  const totalHoras = filtrados.filter(a => a.status !== "CANCELADO").reduce((acc, a) => acc + a.duracaoMinutos / 60, 0)
   const agendados  = filtrados.filter(a => a.status === "AGENDADO").length
   const concluidos = filtrados.filter(a => a.status === "CONCLUIDO").length
 

@@ -15,7 +15,7 @@ export default async function ProfessorDashboard() {
   )
 
   return (
-    <main className="max-w-4xl mx-auto px-4 py-8 space-y-8">
+    <main className="max-w-4xl mx-auto px-4 py-6 sm:py-8 space-y-8">
       <div>
         <h1 className="text-2xl font-bold text-neutral-900">
           Olá, {session.user.name.split(" ")[0]}! 👋
@@ -42,7 +42,7 @@ export default async function ProfessorDashboard() {
                 className="bg-white border border-neutral-200 rounded-2xl p-5 shadow-card"
               >
                 {/* Cabeçalho da aula */}
-                <div className="flex items-start justify-between mb-3">
+                <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
                   <div>
                     <p className="font-semibold text-neutral-900">{apt.disciplina}</p>
                     <p className="text-sm text-neutral-500">

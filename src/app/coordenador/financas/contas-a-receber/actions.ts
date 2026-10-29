@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
+import { registrarAuditoria, quem, primeiroNome, fmtMoeda } from "@/lib/audit"
 
 function requireCoordenador(session: any) {
   if (!session?.user || session.user.role !== "COORDENADOR") throw new Error("Acesso negado")
@@ -61,6 +62,12 @@ async function lancar(formData: FormData, tipo: "CREDITO" | "DEBITO") {
     })
   })
 
+  const aluno = await prisma.user.findUnique({ where: { id: alunoId }, select: { name: true } })
+  await registrarAuditoria(session, tipo === "CREDITO" ? "FINANCEIRO_CREDITO_ALUNO" : "FINANCEIRO_DEBITO_ALUNO",
+    "ContaAluno", conta.id,
+    `${quem(session)} lançou ${tipo === "CREDITO" ? "crédito" : "débito"} de ${fmtMoeda(valor)} na conta do aluno ` +
+    `${primeiroNome(aluno?.name ?? "")} (${descricao})`)
+
   revalidatePath("/coordenador/financas/contas-a-receber")
   return { success: true }
 }
@@ -79,7 +86,7 @@ export async function estornarTransacao(transacaoId: string) {
 
   const tx = await prisma.transacaoAluno.findUnique({
     where: { id: BigInt(transacaoId) },
-    include: { conta: true },
+    include: { conta: { include: { aluno: { select: { name: true } } } } },
   })
   if (!tx) return { success: false, error: "Transação não encontrada" }
 
@@ -91,6 +98,10 @@ export async function estornarTransacao(transacaoId: string) {
     await prismaTx.transacaoAluno.delete({ where: { id: BigInt(transacaoId) } })
     await prismaTx.contaAluno.update({ where: { id: tx.conta.id }, data: { saldo: delta } })
   })
+
+  await registrarAuditoria(session, "FINANCEIRO_ESTORNO_ALUNO", "ContaAluno", tx.conta.id,
+    `${quem(session)} estornou ${tx.tipo === "CREDITO" ? "crédito" : "débito"} de ${fmtMoeda(Number(tx.valor))} ` +
+    `da conta do aluno ${primeiroNome(tx.conta.aluno.name)} (${tx.descricao})`)
 
   revalidatePath("/coordenador/financas/contas-a-receber")
   return { success: true }

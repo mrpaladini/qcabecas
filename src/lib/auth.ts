@@ -4,6 +4,7 @@ import Credentials from "next-auth/providers/credentials"
 import { prisma } from "@/lib/db"
 import bcrypt from "bcryptjs"
 import { authConfig } from "../../auth.config"
+import { registrarAuditoria, ROLE_LABEL, primeiroNome } from "@/lib/audit"
 
 export const { auth, handlers, signIn, signOut } = NextAuth({
   ...authConfig,
@@ -28,6 +29,12 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
           user.passwordHash
         )
         if (!isValid) return null
+
+        await registrarAuditoria(
+          { user: { id: String(user.id), name: user.name, role: user.role } },
+          "LOGIN", "Usuario", user.id,
+          `${ROLE_LABEL[user.role] ?? "Usuário"} ${primeiroNome(user.name)} entrou no sistema`,
+        )
 
         return {
           id: String(user.id),
