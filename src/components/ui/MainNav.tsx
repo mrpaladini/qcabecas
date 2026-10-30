@@ -16,7 +16,14 @@ const MENU_COORDENADOR: Entrada[] = [
   { href: "/coordenador/disciplinas", label: "Disciplinas" },
   { href: "/coordenador/salas", label: "Salas" },
   { href: "/coordenador/calendario", label: "Calendário" },
-  { href: "/coordenador/relatorio", label: "Relatório" },
+  {
+    label: "Relatório",
+    itens: [
+      { href: "/coordenador/relatorio", label: "Relatório de Aulas", icon: "📋" },
+      { href: "/coordenador/relatorio/conferencia-professor", label: "Conferência Professor", icon: "👩‍🏫" },
+      { href: "/coordenador/relatorio/conferencia-aluno", label: "Conferência Aluno", icon: "🎓" },
+    ],
+  },
   {
     label: "Finanças",
     itens: [
@@ -84,7 +91,7 @@ export function MainNav({ role, logado }: { role?: string; logado: boolean }) {
 
   if (menu.length === 0) return null
 
-  const RAIZES = ["/aluno", "/professor"] // raiz só fica ativa na própria página
+  const RAIZES = ["/aluno", "/professor", "/coordenador/relatorio"] // raiz só fica ativa na própria página
   const ativo = (href: string) => !href.includes("#") &&
     (pathname === href || (!RAIZES.includes(href) && pathname.startsWith(href + "/")))
   const grupoAtivo = (g: Grupo) => g.itens.some(i => ativo(i.href))

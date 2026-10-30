@@ -11,6 +11,9 @@ type Agendamento = {
   id: string
   disciplina: string
   aluno: string
+  /** preço por hora do cadastro do aluno */
+  alunoPrecoPresencial?: string | null
+  alunoPrecoVirtual?: string | null
   professor: string
   dataHora: string
   duracaoMinutos: number
@@ -38,6 +41,23 @@ const STATUS_LABEL: Record<string, string> = {
   AGENDADO:  "Agendado",
   CANCELADO: "Cancelado",
   CONCLUIDO: "Concluído",
+}
+
+function fmtBRL(v: number) {
+  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+}
+
+function fmtDuracao(min: number) {
+  const h = Math.floor(min / 60), m = min % 60
+  return m ? `${h}h${String(m).padStart(2, "0")}` : `${h}h`
+}
+
+/** Valor da aula pelo cadastro do aluno: preço/hora (online x presencial) × duração. */
+function valorPeloCadastro(apt: Agendamento, salaTipo: string | null | undefined, duracaoMin: number) {
+  const online = salaTipo === "VIRTUAL"
+  const precoHora = Number((online ? apt.alunoPrecoVirtual : apt.alunoPrecoPresencial) ?? 0)
+  if (!(precoHora > 0)) return null
+  return { precoHora, origem: online ? "online" : "presencial", total: Math.round(precoHora * duracaoMin / 60 * 100) / 100 }
 }
 
 function toLocalDatetimeInput(iso: string) {
@@ -267,7 +287,16 @@ export function AgendamentoCRUD({ agendamentos, salas, coordenadores = [], profe
                   <div>
                     <label className="block text-xs font-medium text-neutral-600 mb-1">Duração</label>
                     <select value={editData.duracaoMinutos}
-                      onChange={e => setEditData(p => ({ ...p, duracaoMinutos: e.target.value }))}
+                      onChange={e => {
+                        const nova = Number(e.target.value)
+                        setEditData(p => {
+                          // Mantém o mesmo valor por hora: ajusta o total proporcionalmente à nova duração
+                          const antiga = Number(p.duracaoMinutos) || 60
+                          const v = Number(p.valorCobrado)
+                          const valorCobrado = v > 0 ? (Math.round(v / antiga * nova * 100) / 100).toFixed(2) : p.valorCobrado
+                          return { ...p, duracaoMinutos: e.target.value, valorCobrado }
+                        })
+                      }}
                       className={fieldCls(camposErro, "duracaoMinutos")}>
                       <option value="60">1 hora</option>
                       <option value="90">1h30min</option>
@@ -279,7 +308,7 @@ export function AgendamentoCRUD({ agendamentos, salas, coordenadores = [], profe
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-neutral-600 mb-1">Valor cobrado ao aluno <span className="text-red-500">*</span></label>
+                    <label className="block text-xs font-medium text-neutral-600 mb-1">Valor total da aula (aluno) <span className="text-red-500">*</span></label>
                     <CurrencyInput
                       value={editData.valorCobrado}
                       onChange={v => setEditData(p => ({ ...p, valorCobrado: v }))}
@@ -287,6 +316,22 @@ export function AgendamentoCRUD({ agendamentos, salas, coordenadores = [], profe
                       hasError={!!camposErro.valorCobrado}
                       className="rounded-lg py-2"
                     />
+                    {(() => {
+                      const salaSel = salas.find(s => String(s.id) === editData.roomId)
+                      const dur = Number(editData.duracaoMinutos) || 60
+                      const c = valorPeloCadastro(apt, salaSel?.type ?? null, dur)
+                      if (!c) return null
+                      const diferente = Math.abs(Number(editData.valorCobrado || 0) - c.total) > 0.005
+                      return (
+                        <p className={`text-[11px] mt-1 ${diferente ? "text-amber-700" : "text-neutral-500"}`}>
+                          Cadastro ({c.origem}): {fmtBRL(c.precoHora)}/h × {fmtDuracao(dur)} = <strong>{fmtBRL(c.total)}</strong>
+                          {diferente && (
+                            <button type="button" onClick={() => setEditData(p => ({ ...p, valorCobrado: c.total.toFixed(2) }))}
+                              className="ml-2 text-primary-600 hover:underline font-medium">usar este</button>
+                          )}
+                        </p>
+                      )
+                    })()}
                     <FieldError camposErro={camposErro} field="valorCobrado" />
                   </div>
 

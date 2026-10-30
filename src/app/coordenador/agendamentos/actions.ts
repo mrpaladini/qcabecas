@@ -84,6 +84,37 @@ async function notificarAula(
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SessionLike = any
 
+function fmtDuracaoTxt(min: number) {
+  const h = Math.floor(min / 60), m = min % 60
+  return m ? `${h}h${String(m).padStart(2, "0")}` : `${h}h`
+}
+
+/**
+ * Procura outra aula ativa (Pendente/Agendada) do mesmo ALUNO com horário
+ * sobreposto. `ignorarId` = a própria aula, na edição.
+ */
+async function conflitoAluno(alunoId: bigint, inicio: Date, fim: Date, ignorarId?: bigint) {
+  type Row = { id: bigint; disciplina: string; data_hora: Date; duracao_minutos: number; professor: string }
+  const rows = await prisma.$queryRaw<Row[]>`
+    SELECT a.id, a.disciplina, a.data_hora, a.duracao_minutos, u.name AS professor
+    FROM appointments a
+    JOIN users u ON u.id = a.professor_id
+    WHERE a.aluno_id = ${alunoId}
+      AND a.status IN ('PENDENTE', 'AGENDADO')
+      AND a.id != ${ignorarId ?? BigInt(0)}
+      AND a.data_hora < ${fim}
+      AND DATE_ADD(a.data_hora, INTERVAL a.duracao_minutos MINUTE) > ${inicio}
+    LIMIT 1
+  `
+  if (rows.length === 0) return null
+  const r = rows[0]
+  const ini = new Date(r.data_hora)
+  const fimR = new Date(ini.getTime() + Number(r.duracao_minutos) * 60_000)
+  const hora = (d: Date) => d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" })
+  const dia  = ini.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })
+  return `${r.disciplina} em ${dia}, das ${hora(ini)} às ${hora(fimR)} (Prof. ${r.professor})`
+}
+
 /** Valor que o professor recebe pela aula (preço/hora do cadastro × duração). */
 function calcularValorProfessor(apt: {
   duracaoMinutos: number
@@ -196,7 +227,7 @@ async function sincronizarFinanceiro(
           await tx.transacaoAluno.create({
             data: {
               contaId: conta.id, tipo: "DEBITO", valor: valorAluno,
-              descricao: `Aula de ${apt.disciplina}`, appointmentId: id, registradoPor,
+              descricao: `Aula de ${apt.disciplina} (${fmtDuracaoTxt(apt.duracaoMinutos)})`, appointmentId: id, registradoPor,
             },
           })
           await tx.contaAluno.update({ where: { id: conta.id }, data: { saldo: { decrement: valorAluno } } })
@@ -204,7 +235,10 @@ async function sincronizarFinanceiro(
       } else if (Number(existente.valor) !== valorAluno) {
         const diff = valorAluno - Number(existente.valor)
         await prisma.$transaction(async tx => {
-          await tx.transacaoAluno.update({ where: { id: existente.id }, data: { valor: valorAluno } })
+          await tx.transacaoAluno.update({
+            where: { id: existente.id },
+            data:  { valor: valorAluno, descricao: `Aula de ${apt.disciplina} (${fmtDuracaoTxt(apt.duracaoMinutos)})` },
+          })
           await tx.contaAluno.update({ where: { id: existente.contaId }, data: { saldo: { decrement: diff } } })
         })
       }
@@ -329,6 +363,15 @@ export async function criarAgendamento(formData: FormData) {
     return {
       success: false,
       error: `Professor ${professor.name} já tem uma aula marcada neste horário. Escolha outro horário.`,
+    }
+  }
+
+  // Verificar conflito de aluno (mesmo aluno, horário sobreposto)
+  const choqueAluno = await conflitoAluno(alunoId, novoInicio, novoFim)
+  if (choqueAluno) {
+    return {
+      success: false,
+      error: `Aluno ${aluno.name} já tem uma aula marcada neste horário: ${choqueAluno}. Escolha outro horário.`,
     }
   }
 
@@ -518,6 +561,10 @@ export async function atualizarAgendamento(appointmentId: string, formData: Form
     `
     if (conflitoProfessor.length > 0)
       return { success: false, error: `Professor ${novoProfessor.name} já tem outra aula agendada neste horário.` }
+
+    const choqueAluno = await conflitoAluno(apt.alunoId, novoInicio, novoFim, id)
+    if (choqueAluno)
+      return { success: false, error: `Aluno ${apt.aluno.name} já tem outra aula neste horário: ${choqueAluno}.` }
 
     if (roomId) {
       const conflitoSala = await prisma.$queryRaw<ConflictRow[]>`

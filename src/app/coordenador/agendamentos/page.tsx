@@ -39,7 +39,7 @@ export default async function AgendamentosPage() {
       orderBy: { dataHora: "desc" },
       take: 100,
       include: {
-        aluno:     { select: { name: true } },
+        aluno:     { select: { name: true, precoPresencial: true, precoVirtual: true } },
         professor: { select: { name: true } },
         room:      { select: { id: true, name: true, type: true } },
         subject:   { select: { name: true } },
@@ -86,6 +86,8 @@ export default async function AgendamentosPage() {
     id: String(apt.id),
     disciplina:     apt.subject?.name ?? apt.disciplina,
     aluno:          apt.aluno.name,
+    alunoPrecoPresencial: apt.aluno.precoPresencial?.toString() ?? null,
+    alunoPrecoVirtual:    apt.aluno.precoVirtual?.toString() ?? null,
     professor:      apt.professor.name,
     dataHora:       apt.dataHora.toISOString(),
     duracaoMinutos: apt.duracaoMinutos,

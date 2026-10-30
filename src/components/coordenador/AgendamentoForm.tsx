@@ -32,13 +32,27 @@ function fmt(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
 }
 
-/** Valor por aula do cadastro do aluno, conforme a sala (online x presencial). */
-function valorSugerido(aluno: Aluno | undefined, sala: Sala | undefined) {
-  if (!aluno) return { valor: "", origem: null as string | null }
+function fmtDuracao(min: number) {
+  const h = Math.floor(min / 60), m = min % 60
+  return m ? `${h}h${String(m).padStart(2, "0")}` : `${h}h`
+}
+
+/**
+ * Valor da aula a partir do cadastro do aluno: o preço cadastrado é por HORA,
+ * conforme a sala (online x presencial), multiplicado pela duração da aula.
+ * Ex.: R$ 80/h × 1h30 = R$ 120,00.
+ */
+function valorSugerido(aluno: Aluno | undefined, sala: Sala | undefined, duracaoMin: number) {
+  const vazio = { valor: "", precoHora: 0, origem: null as string | null }
+  if (!aluno) return vazio
   const online = sala?.type === "VIRTUAL"
   const principal = online ? aluno.precoVirtual : aluno.precoPresencial
-  if (principal && Number(principal) > 0) return { valor: Number(principal).toFixed(2), origem: online ? "online" : "presencial" }
-  return { valor: "", origem: null }
+  const precoHora = Number(principal ?? 0)
+  if (precoHora > 0) {
+    const total = Math.round(precoHora * (duracaoMin / 60) * 100) / 100
+    return { valor: total.toFixed(2), precoHora, origem: online ? "online" : "presencial" }
+  }
+  return vazio
 }
 
 export function AgendamentoForm({ alunos, todasDisciplinas, salas, coordenadores = [], coordenadorPadrao = "" }: {
@@ -66,16 +80,16 @@ export function AgendamentoForm({ alunos, todasDisciplinas, salas, coordenadores
 
   const aluno = alunos.find(a => a.id === alunoId)
   const sala  = salas.find(s => String(s.id) === roomId)
-  const sugestao = valorSugerido(aluno, sala)
+  const sugestao = valorSugerido(aluno, sala, Number(duracao))
 
   const professoresDaDisciplina = disciplinaId
     ? (todasDisciplinas.find(d => d.id === disciplinaId)?.professores ?? [])
     : []
 
   /** Atualiza o valor com o do cadastro. `forcar` = troca de aluno (sempre sobrescreve);
-   *  troca de sala só sobrescreve se o valor ainda for o sugerido (não foi editado à mão). */
-  function aplicarValor(novoAluno: Aluno | undefined, novaSala: Sala | undefined, forcar: boolean) {
-    const s = valorSugerido(novoAluno, novaSala)
+   *  troca de sala/duração só sobrescreve se o valor ainda for o sugerido (não foi editado à mão). */
+  function aplicarValor(novoAluno: Aluno | undefined, novaSala: Sala | undefined, forcar: boolean, novaDuracao = Number(duracao)) {
+    const s = valorSugerido(novoAluno, novaSala, novaDuracao)
     if (forcar || valorCobrado === "" || valorCobrado === valorAuto) setValorCobrado(s.valor)
     setValorAuto(s.valor)
   }
@@ -225,7 +239,8 @@ export function AgendamentoForm({ alunos, todasDisciplinas, salas, coordenadores
 
         <div>
           <label htmlFor="duracaoMinutos" className="block text-sm font-medium text-neutral-700 mb-1.5">Duração</label>
-          <select id="duracaoMinutos" name="duracaoMinutos" value={duracao} onChange={e => setDuracao(e.target.value)}
+          <select id="duracaoMinutos" name="duracaoMinutos" value={duracao}
+            onChange={e => { setDuracao(e.target.value); aplicarValor(aluno, sala, false, Number(e.target.value)) }}
             className={fieldCls("duracaoMinutos")}>
             <option value="60">1 hora</option>
             <option value="90">1h30min</option>
@@ -278,7 +293,7 @@ export function AgendamentoForm({ alunos, todasDisciplinas, salas, coordenadores
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-neutral-700 mb-1.5">Valor cobrado ao aluno <span className="text-red-500">*</span></label>
+          <label className="block text-sm font-medium text-neutral-700 mb-1.5">Valor total da aula (aluno) <span className="text-red-500">*</span></label>
           <CurrencyInput
             value={valorCobrado}
             onChange={setValorCobrado}
@@ -288,7 +303,7 @@ export function AgendamentoForm({ alunos, todasDisciplinas, salas, coordenadores
           {aluno && (
             sugestao.origem ? (
               <p className="text-xs text-neutral-500 mt-1">
-                Valor do cadastro do aluno ({sugestao.origem}): {fmt(Number(sugestao.valor))}
+                Cadastro do aluno ({sugestao.origem}): {fmt(sugestao.precoHora)}/h × {fmtDuracao(duracaoMin)} = <strong>{fmt(Number(sugestao.valor))}</strong>
                 {valorCobrado && valorCobrado !== sugestao.valor && (
                   <button type="button" onClick={() => setValorCobrado(sugestao.valor)}
                     className="ml-2 text-primary-600 hover:underline font-medium">usar este</button>
