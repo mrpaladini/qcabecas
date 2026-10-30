@@ -16,7 +16,10 @@ export default async function MateriaisPage() {
     include: {
       professor: { select: { name: true } },
       subject:   { select: { name: true } },
-      materials: { select: { id: true, originalName: true, sizeBytes: true, createdAt: true } },
+      materials: {
+        where:  { origem: "ALUNO" },
+        select: { id: true, originalName: true, sizeBytes: true, createdAt: true },
+      },
     },
   })
 
@@ -34,7 +37,7 @@ export default async function MateriaisPage() {
   }))
 
   return (
-    <main className="max-w-3xl mx-auto px-4 py-8 space-y-8">
+    <main className="max-w-3xl mx-auto px-4 py-6 sm:py-8 space-y-8">
       <div>
         <h1 className="text-2xl font-bold text-neutral-900">Enviar Materiais</h1>
         <p className="text-neutral-500 mt-1">

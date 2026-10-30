@@ -444,7 +444,8 @@ export async function atualizarAgendamento(appointmentId: string, formData: Form
   const apt = await prisma.appointment.findUnique({
     where: { id },
     include: {
-      aluno:       { select: { name: true } },
+      aluno:       { select: { name: true, email: true } },
+      professor:   { select: { id: true, name: true, email: true } },
       coordenador: { select: { id: true, name: true } },
       room:        { select: { name: true } },
     },
@@ -458,6 +459,40 @@ export async function atualizarAgendamento(appointmentId: string, formData: Form
     const msg = "Coordenador: selecione um coordenador ativo"
     return { success: false as const, error: msg, fieldErrors: { coordenadorId: msg } }
   }
+
+  // ── Troca de professor (só em aulas Pendentes/Agendadas) ──
+  const profRaw = String(formData.get("professorId") ?? "").trim()
+  let novoProfessor: { id: bigint; name: string; email: string } = apt.professor
+  if (profRaw && profRaw !== String(apt.professorId)) {
+    const ativa = (s: string) => s === "PENDENTE" || s === "AGENDADO"
+    if (!ativa(apt.status) || !ativa(status)) {
+      const msg = "Professor: só é possível trocar o professor de aulas pendentes ou agendadas"
+      return { success: false as const, error: msg, fieldErrors: { professorId: msg } }
+    }
+    let profId: bigint
+    try { profId = BigInt(profRaw) } catch {
+      return { success: false as const, error: "Professor inválido", fieldErrors: { professorId: "Professor inválido" } }
+    }
+    const prof = await prisma.user.findFirst({
+      where: { id: profId, role: "PROFESSOR", deletedAt: null },
+      select: { id: true, name: true, email: true },
+    })
+    if (!prof) {
+      const msg = "Professor: selecione um professor ativo"
+      return { success: false as const, error: msg, fieldErrors: { professorId: msg } }
+    }
+    if (apt.subjectId) {
+      const vinculado = await prisma.subjectTeacher.findUnique({
+        where: { subjectId_userId: { subjectId: apt.subjectId, userId: profId } },
+      })
+      if (!vinculado) {
+        const msg = `Professor: ${prof.name} não está vinculado à disciplina ${apt.disciplina} (ajuste em Disciplinas)`
+        return { success: false as const, error: msg, fieldErrors: { professorId: msg } }
+      }
+    }
+    novoProfessor = prof
+  }
+  const trocouProfessor = novoProfessor.id !== apt.professorId
 
   // Valor obrigatório (só dispensado ao cancelar a aula)
   const valorFinal = valorCobrado ?? (apt.valorCobrado ? Number(apt.valorCobrado) : undefined)
@@ -474,7 +509,7 @@ export async function atualizarAgendamento(appointmentId: string, formData: Form
     type ConflictRow = { id: bigint }
     const conflitoProfessor = await prisma.$queryRaw<ConflictRow[]>`
       SELECT id FROM appointments
-      WHERE professor_id = ${apt.professorId}
+      WHERE professor_id = ${novoProfessor.id}
         AND status IN ('PENDENTE', 'AGENDADO')
         AND id != ${id}
         AND data_hora < ${novoFim}
@@ -482,7 +517,7 @@ export async function atualizarAgendamento(appointmentId: string, formData: Form
       LIMIT 1
     `
     if (conflitoProfessor.length > 0)
-      return { success: false, error: "Professor já tem outra aula agendada neste horário." }
+      return { success: false, error: `Professor ${novoProfessor.name} já tem outra aula agendada neste horário.` }
 
     if (roomId) {
       const conflitoSala = await prisma.$queryRaw<ConflictRow[]>`
@@ -503,6 +538,7 @@ export async function atualizarAgendamento(appointmentId: string, formData: Form
     where: { id },
     data: {
       status,
+      professorId:    novoProfessor.id,
       coordenadorId:  coordenador.id,
       dataHora:       novoInicio,
       duracaoMinutos,
@@ -514,8 +550,19 @@ export async function atualizarAgendamento(appointmentId: string, formData: Form
     include: { coordenador: { select: { name: true } }, room: { select: { name: true } } },
   })
 
-  // Pendente → Agendado: avisa aluno e professor que a aula foi confirmada
-  if (apt.status === "PENDENTE" && status === "AGENDADO") {
+  if (trocouProfessor) {
+    // Avisa o novo professor e o aluno; e o professor anterior de que não dará mais esta aula
+    await notificarAula(status === "PENDENTE" ? "PENDENTE" : "AGENDADO",
+      { name: apt.aluno.name, email: apt.aluno.email }, novoProfessor, apt.disciplina, novoInicio)
+    const quando = novoInicio.toLocaleString("pt-BR", { dateStyle: "long", timeStyle: "short", timeZone: "America/Sao_Paulo" })
+    await resend.emails.send({
+      from: FROM_EMAIL, to: apt.professor.email,
+      subject: `Aula reatribuída: ${apt.disciplina} com ${apt.aluno.name}`,
+      html: `<p>Olá <strong>${apt.professor.name}</strong>,<br>A aula de <strong>${apt.disciplina}</strong> com ${apt.aluno.name} ` +
+        `em <strong>${quando}</strong> foi passada para outro professor. Ela não está mais na sua agenda.</p>`,
+    }).catch(e => console.error("[agendamento] falha ao avisar professor anterior:", e))
+  } else if (apt.status === "PENDENTE" && status === "AGENDADO") {
+    // Pendente → Agendado: avisa aluno e professor que a aula foi confirmada
     await enviarConfirmacao(id)
   }
 
@@ -532,12 +579,14 @@ export async function atualizarAgendamento(appointmentId: string, formData: Form
   if ((apt.roomId ?? null) !== (roomId ?? null)) mudancas.push(`sala ${apt.room?.name ?? "—"} → ${atualizado.room?.name ?? "—"}`)
   if (Number(apt.valorCobrado ?? 0) !== Number(atualizado.valorCobrado ?? 0))
     mudancas.push(`valor ${fmtMoeda(Number(apt.valorCobrado ?? 0))} → ${fmtMoeda(Number(atualizado.valorCobrado ?? 0))}`)
+  if (trocouProfessor) mudancas.push(`professor ${primeiroNome(apt.professor.name)} → ${primeiroNome(novoProfessor.name)}`)
   if (apt.coordenadorId !== coordenador.id) mudancas.push(`coordenador ${primeiroNome(apt.coordenador.name)} → ${primeiroNome(atualizado.coordenador.name)}`)
   if ((apt.observacoes ?? "") !== (observacoes ?? "")) mudancas.push("observações")
 
   if (mudancas.length || notasFin.length) {
     const acao = apt.status !== status && status === "CANCELADO" ? "AGENDAMENTO_CANCELADO"
       : apt.status !== status && status === "CONCLUIDO" ? "AGENDAMENTO_CONCLUIDO"
+      : trocouProfessor ? "AGENDAMENTO_PROFESSOR"
       : "AGENDAMENTO_ALTERADO"
     const verbo = acao === "AGENDAMENTO_CANCELADO" ? "cancelou" : acao === "AGENDAMENTO_CONCLUIDO" ? "concluiu" : "alterou"
     await registrarAuditoria(session, acao, "Agendamento", id,
@@ -549,6 +598,7 @@ export async function atualizarAgendamento(appointmentId: string, formData: Form
 
   revalidatePath("/coordenador/agendamentos")
   revalidatePath("/coordenador/calendario")
+  revalidatePath("/professor")
   revalidatePath("/coordenador/financas/contas-a-pagar")
   revalidatePath("/coordenador/financas/contas-a-receber")
   return { success: true }

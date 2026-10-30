@@ -22,6 +22,8 @@ type Agendamento = {
   valorCobrado: string | null
   coordenadorId: string
   coordenador: string
+  professorId: string
+  subjectId: number | null
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -56,10 +58,12 @@ function FieldError({ camposErro, field }: { camposErro: Record<string, string>;
   return <p className="text-xs text-red-600 mt-1">{camposErro[field]}</p>
 }
 
-export function AgendamentoCRUD({ agendamentos, salas, coordenadores = [] }: {
+export function AgendamentoCRUD({ agendamentos, salas, coordenadores = [], professoresPorDisciplina = {} }: {
   agendamentos: Agendamento[]
   salas: Sala[]
   coordenadores?: Coordenador[]
+  /** professores ativos vinculados a cada disciplina (id da disciplina → lista) */
+  professoresPorDisciplina?: Record<number, { id: string; name: string }[]>
 }) {
   const [editingId, setEditingId]       = useState<string | null>(null)
   const [editData, setEditData]         = useState<Record<string, any>>({})
@@ -95,6 +99,7 @@ export function AgendamentoCRUD({ agendamentos, salas, coordenadores = [] }: {
       observacoes:    apt.observacoes ?? "",
       valorCobrado:   apt.valorCobrado ?? "",
       coordenadorId:  apt.coordenadorId,
+      professorId:    apt.professorId,
     })
   }
 
@@ -109,6 +114,7 @@ export function AgendamentoCRUD({ agendamentos, salas, coordenadores = [] }: {
     fd.set("observacoes",    editData.observacoes)
     fd.set("valorCobrado",   editData.valorCobrado)
     fd.set("coordenadorId",  editData.coordenadorId ?? "")
+    fd.set("professorId",    editData.professorId ?? "")
 
     startTransition(async () => {
       const res = await atualizarAgendamento(id, fd)
@@ -282,6 +288,35 @@ export function AgendamentoCRUD({ agendamentos, salas, coordenadores = [] }: {
                       className="rounded-lg py-2"
                     />
                     <FieldError camposErro={camposErro} field="valorCobrado" />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-600 mb-1">Professor</label>
+                    {(() => {
+                      const ativa = apt.status === "PENDENTE" || apt.status === "AGENDADO"
+                      const lista = apt.subjectId ? (professoresPorDisciplina[apt.subjectId] ?? []) : []
+                      const opcoes = lista.some(p => p.id === apt.professorId)
+                        ? lista
+                        : [{ id: apt.professorId, name: apt.professor }, ...lista]
+                      return (
+                        <>
+                          <select value={editData.professorId}
+                            onChange={e => setEditData(p => ({ ...p, professorId: e.target.value }))}
+                            disabled={!ativa}
+                            className={`${fieldCls(camposErro, "professorId")} disabled:bg-neutral-100 disabled:text-neutral-500`}>
+                            {opcoes.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                          </select>
+                          <p className="text-[11px] text-neutral-500 mt-1">
+                            {!ativa
+                              ? "A troca de professor só vale para aulas pendentes ou agendadas."
+                              : editData.professorId !== apt.professorId
+                                ? "O novo professor e o aluno serão avisados por e-mail; o anterior também."
+                                : `Professores vinculados a ${apt.disciplina}.`}
+                          </p>
+                        </>
+                      )
+                    })()}
+                    <FieldError camposErro={camposErro} field="professorId" />
                   </div>
 
                   <div>

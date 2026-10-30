@@ -107,6 +107,10 @@ model Material {
   filepath      String      @db.VarChar(500)
   mimetype      String      @db.VarChar(100)
   sizeBytes     Int         @map("size_bytes") @db.UnsignedInt
+  /// Quem enviou: "ALUNO" (material para o professor) ou "PROFESSOR" (material de estudo para o aluno)
+  origem        String      @default("ALUNO") @db.VarChar(20)
+  /// Usuário que fez o upload (aluno ou professor)
+  enviadoPorId  BigInt?     @map("enviado_por") @db.UnsignedBigInt
   createdAt     DateTime    @default(now()) @map("created_at")
   updatedAt     DateTime    @updatedAt @map("updated_at")
   aluno         User        @relation(fields: [alunoId], references: [id])
@@ -115,6 +119,7 @@ model Material {
   @@index([appointmentId])
   @@index([alunoId])
   @@index([appointmentId, alunoId])
+  @@index([alunoId, origem], map: "idx_materials_aluno_origem")
   @@map("materials")
 }
 

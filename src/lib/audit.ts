@@ -45,6 +45,8 @@ export const ACOES_AUDITORIA: Record<string, string> = {
   FINANCEIRO_PAGAMENTO:      "Pagamento gerado",
   MATERIAL_ENVIADO:          "Material enviado",
   MATERIAL_BAIXADO:          "Material baixado",
+  MATERIAL_EXCLUIDO:         "Material excluído",
+  AGENDAMENTO_PROFESSOR:     "Professor da aula trocado",
 }
 
 type SessionUser = { id?: string | null; name?: string | null; role?: string }

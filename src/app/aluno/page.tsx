@@ -17,9 +17,11 @@ export default async function AlunoDashboard() {
       professor: { select: { name: true } },
       subject:   { select: { name: true } },
       room:      { select: { name: true, type: true } },
-      materials: { select: { id: true } },
+      materials: { select: { id: true, origem: true } },
     },
   })
+
+  const recebidos = agendamentos.reduce((n, a) => n + a.materials.filter(m => m.origem === "PROFESSOR").length, 0)
 
   const proximas = agendamentos.filter(
     a => (a.status === "AGENDADO" || a.status === "PENDENTE") && new Date(a.dataHora) >= new Date()
@@ -53,6 +55,15 @@ export default async function AlunoDashboard() {
             Enviar arquivo
           </Link>
         </div>
+      )}
+
+      {/* Materiais recebidos do professor */}
+      {recebidos > 0 && (
+        <Link href="/aluno/materiais-professor"
+          className="block bg-amber-50 border border-amber-200 rounded-2xl p-5 hover:bg-amber-100 transition-colors">
+          <p className="font-semibold text-amber-900">📚 Você tem {recebidos} material(is) do professor</p>
+          <p className="text-sm text-amber-800 mt-0.5">Toque para ver e baixar os arquivos de estudo →</p>
+        </Link>
       )}
 
       {/* Próximas aulas */}
@@ -90,10 +101,15 @@ export default async function AlunoDashboard() {
                       {apt.room.type === "VIRTUAL" ? "💻" : "🏫"} {apt.room.name}
                     </p>
                   )}
-                  {apt.materials.length > 0 && (
+                  {apt.materials.filter(m => m.origem !== "PROFESSOR").length > 0 && (
                     <p className="text-xs text-green-600 font-medium">
-                      ✓ {apt.materials.length} material(is) enviado(s)
+                      ✓ {apt.materials.filter(m => m.origem !== "PROFESSOR").length} material(is) enviado(s)
                     </p>
+                  )}
+                  {apt.materials.some(m => m.origem === "PROFESSOR") && (
+                    <Link href="/aluno/materiais-professor" className="block text-xs text-primary-700 font-semibold hover:underline">
+                      📚 {apt.materials.filter(m => m.origem === "PROFESSOR").length} material(is) do professor →
+                    </Link>
                   )}
                 </div>
                 <div className="flex sm:flex-col items-center sm:items-end gap-3 sm:gap-2">

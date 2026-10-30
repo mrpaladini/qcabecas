@@ -10,7 +10,9 @@ function requireCoordenador(session: any) {
   if (!session?.user || session.user.role !== "COORDENADOR") throw new Error("Acesso negado")
 }
 
-export async function getOrCreateConta(alunoId: bigint) {
+// NÃO exportar: em arquivo "use server", toda função exportada vira um
+// endpoint público. Esta é de uso interno (já chamada após checar o coordenador).
+async function getOrCreateConta(alunoId: bigint) {
   return prisma.contaAluno.upsert({
     where:  { alunoId },
     update: {},

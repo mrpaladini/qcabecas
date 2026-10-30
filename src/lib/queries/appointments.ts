@@ -32,7 +32,10 @@ export async function getAppointmentsByProfessor(professorId: number) {
           sizeBytes: true,
           createdAt: true,
           alunoId: true,
+          origem: true,
+          enviadoPorId: true,
         },
+        orderBy: { createdAt: "asc" },
       },
     },
   })

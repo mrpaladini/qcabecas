@@ -32,6 +32,16 @@ const MENU_COORDENADOR: Entrada[] = [
   },
 ]
 
+const MENU_ALUNO: Entrada[] = [
+  { href: "/aluno", label: "Minhas aulas" },
+  { href: "/aluno/materiais", label: "Enviar material" },
+  { href: "/aluno/materiais-professor", label: "Materiais do professor" },
+]
+
+const MENU_PROFESSOR: Entrada[] = [
+  { href: "/professor", label: "Minhas aulas e materiais" },
+]
+
 const MENU_PUBLICO: Entrada[] = [
   { href: "/#servicos", label: "Serviços" },
   { href: "/#contato", label: "Contato" },
@@ -52,7 +62,11 @@ export function MainNav({ role, logado }: { role?: string; logado: boolean }) {
   const [aberto, setAberto] = useState(false)
   const [submenu, setSubmenu] = useState<string | null>(null)
 
-  const menu: Entrada[] = role === "COORDENADOR" ? MENU_COORDENADOR : !logado ? MENU_PUBLICO : []
+  const menu: Entrada[] =
+    role === "COORDENADOR" ? MENU_COORDENADOR :
+    role === "ALUNO"       ? MENU_ALUNO :
+    role === "PROFESSOR"   ? MENU_PROFESSOR :
+    !logado                ? MENU_PUBLICO : []
 
   // fecha painel/submenus ao navegar (ajuste de estado durante o render, sem efeito)
   const [ultimoPath, setUltimoPath] = useState(pathname)
@@ -70,7 +84,9 @@ export function MainNav({ role, logado }: { role?: string; logado: boolean }) {
 
   if (menu.length === 0) return null
 
-  const ativo = (href: string) => !href.includes("#") && (pathname === href || pathname.startsWith(href + "/"))
+  const RAIZES = ["/aluno", "/professor"] // raiz só fica ativa na própria página
+  const ativo = (href: string) => !href.includes("#") &&
+    (pathname === href || (!RAIZES.includes(href) && pathname.startsWith(href + "/")))
   const grupoAtivo = (g: Grupo) => g.itens.some(i => ativo(i.href))
 
   // Menu público é curto: mostra em linha a partir do md; o do coordenador só no xl

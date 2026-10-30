@@ -77,6 +77,10 @@ export default async function AgendamentosPage() {
       .sort((a, b) => a.name.localeCompare(b.name)),
   }))
   const salasData = salas.map(s => ({ id: s.id, name: s.name, type: s.type }))
+  // Professores ativos de cada disciplina (para a troca de professor na edição)
+  const professoresPorDisciplina: Record<number, { id: string; name: string }[]> = Object.fromEntries(
+    disciplinasData.map(d => [d.id, d.professores.map(p => ({ id: p.id, name: p.name }))]),
+  )
 
   const agendamentosData = agendamentos.map(apt => ({
     id: String(apt.id),
@@ -92,6 +96,8 @@ export default async function AgendamentosPage() {
     observacoes:    apt.observacoes ?? null,
     valorCobrado:   apt.valorCobrado?.toString() ?? null,
     coordenadorId:  String(apt.coordenador.id),
+    professorId:    String(apt.professorId),
+    subjectId:      apt.subjectId ?? null,
     coordenador:    apt.coordenador.name,
   }))
 
@@ -125,7 +131,8 @@ export default async function AgendamentosPage() {
           </div>
         </div>
 
-        <AgendamentoCRUD agendamentos={agendamentosData} salas={salasData} coordenadores={coordenadoresData} />
+        <AgendamentoCRUD agendamentos={agendamentosData} salas={salasData} coordenadores={coordenadoresData}
+          professoresPorDisciplina={professoresPorDisciplina} />
       </section>
     </main>
   )
