@@ -99,3 +99,43 @@ export function verificarDisponibilidade(
   const cabe = disp.some(f => f.dia === dia && toMin(f.inicio) <= inicio && toMin(f.fim) >= fim)
   return cabe ? "DISPONIVEL" : "INDISPONIVEL"
 }
+
+/* ─── Pagamento por PIX ─────────────────────────────────────────────────── */
+
+export const PIX_TIPOS = [
+  { key: "CPF",       label: "CPF",            placeholder: "000.000.000-00" },
+  { key: "CNPJ",      label: "CNPJ",           placeholder: "00.000.000/0000-00" },
+  { key: "EMAIL",     label: "E-mail",         placeholder: "professor@email.com" },
+  { key: "TELEFONE",  label: "Telefone",       placeholder: "(19) 99999-9999" },
+  { key: "ALEATORIA", label: "Chave aleatória", placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" },
+] as const
+
+export type PixTipo = (typeof PIX_TIPOS)[number]["key"]
+
+export function pixTipoLabel(key: string | null | undefined) {
+  return PIX_TIPOS.find(t => t.key === key)?.label ?? ""
+}
+
+/** Valida a chave conforme o tipo. Retorna a mensagem de erro, ou null se estiver ok. */
+export function validarPix(tipo: string, chave: string): string | null {
+  const c = chave.trim()
+  const dig = c.replace(/\D/g, "")
+  switch (tipo) {
+    case "CPF":       return dig.length === 11 ? null : "Chave PIX: CPF deve ter 11 dígitos"
+    case "CNPJ":      return dig.length === 14 ? null : "Chave PIX: CNPJ deve ter 14 dígitos"
+    case "EMAIL":     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c) ? null : "Chave PIX: e-mail inválido"
+    case "TELEFONE":  return dig.length >= 10 && dig.length <= 13 ? null : "Chave PIX: telefone deve ter DDD + número"
+    case "ALEATORIA": return /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i.test(c) ? null : "Chave PIX: chave aleatória inválida (32 caracteres)"
+    default:          return "Chave PIX: selecione o tipo da chave"
+  }
+}
+
+/* ─── Currículo ──────────────────────────────────────────────────────────── */
+
+export const CURRICULO_MAX_BYTES = 10 * 1024 * 1024 // 10 MB
+export const CURRICULO_ACCEPT = ".pdf,.doc,.docx,.jpg,.jpeg,.png"
+
+/** Link do currículo (só coordenadores conseguem abrir). `ver` = abrir no navegador (PDF/imagem). */
+export function urlCurriculo(professorId: string, nome: string, ver = false) {
+  return `/api/curriculos/${professorId}/${encodeURIComponent(nome)}${ver ? "?ver=1" : ""}`
+}

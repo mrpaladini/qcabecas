@@ -18,6 +18,8 @@ export default async function ProfessoresPage() {
       deletedAt: true, createdAt: true, precoPresencial: true, precoVirtual: true,
       observacoes: true, escolaAtuacao: true, seriesAtendidas: true,
       atendePresencial: true, atendeOnline: true, disponibilidade: true,
+      pixTipo: true, pixChave: true,
+      curriculoNome: true, curriculoMime: true, curriculoTamanho: true, curriculoEnviadoEm: true,
       ajustesProfessor: {
         orderBy: { createdAt: "desc" },
         take: 50,
@@ -26,8 +28,14 @@ export default async function ProfessoresPage() {
     },
   })
 
-  const data = professores.map(({ ajustesProfessor, ...p }) => ({
+  const data = professores.map(({ ajustesProfessor, curriculoNome, curriculoMime, curriculoTamanho, curriculoEnviadoEm, ...p }) => ({
     ...p,
+    curriculo: curriculoNome ? {
+      nome:      curriculoNome,
+      mime:      curriculoMime,
+      tamanho:   curriculoTamanho,
+      enviadoEm: curriculoEnviadoEm?.toISOString() ?? null,
+    } : null,
     id: String(p.id),
     role: "PROFESSOR" as const,
     createdAt: p.createdAt.toISOString(),

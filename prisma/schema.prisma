@@ -38,6 +38,15 @@ model User {
   atendePresencial          Boolean              @default(false) @map("atende_presencial")
   atendeOnline              Boolean              @default(false) @map("atende_online")
   disponibilidade           Json?
+  /// Professor: forma de pagamento por PIX (CPF, CNPJ, EMAIL, TELEFONE ou ALEATORIA)
+  pixTipo                   String?              @map("pix_tipo") @db.VarChar(20)
+  pixChave                  String?              @map("pix_chave") @db.VarChar(150)
+  /// Professor: currículo (arquivo em uploads/curriculos/<id>/ — só coordenadores acessam)
+  curriculoNome             String?              @map("curriculo_nome") @db.VarChar(255)
+  curriculoArquivo          String?              @map("curriculo_arquivo") @db.VarChar(255)
+  curriculoMime             String?              @map("curriculo_mime") @db.VarChar(100)
+  curriculoTamanho          Int?                 @map("curriculo_tamanho") @db.UnsignedInt
+  curriculoEnviadoEm        DateTime?            @map("curriculo_enviado_em")
   createdAt                 DateTime             @default(now()) @map("created_at")
   updatedAt                 DateTime             @updatedAt @map("updated_at")
   deletedAt                 DateTime?            @map("deleted_at")

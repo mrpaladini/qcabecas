@@ -7,7 +7,7 @@ export default async function ContasPagarPage() {
   const session = await auth()
   if ((session?.user as any)?.role !== "COORDENADOR") redirect("/unauthorized")
 
-  const [evidencias, pagamentos, ajustesPendentes] = await Promise.all([
+  const [evidencias, pagamentos, ajustesPendentes, professoresPix] = await Promise.all([
     prisma.evidencia.findMany({
       where: { status: "CONCLUIDO" },
       include: {
@@ -30,7 +30,15 @@ export default async function ContasPagarPage() {
       orderBy: { createdAt: "asc" },
       select: { professorId: true, tipo: true, valor: true },
     }),
+    prisma.user.findMany({
+      where: { role: "PROFESSOR", pixChave: { not: null } },
+      select: { id: true, pixTipo: true, pixChave: true },
+    }),
   ])
+
+  // Chave PIX de cada professor (para pagar)
+  const pix: Record<string, { tipo: string | null; chave: string }> = {}
+  for (const p of professoresPix) if (p.pixChave) pix[String(p.id)] = { tipo: p.pixTipo, chave: p.pixChave }
 
   // Saldo de débitos/créditos manuais pendentes, por professor
   const ajustes: Record<string, number> = {}
@@ -80,5 +88,5 @@ export default async function ContasPagarPage() {
     geradoPor:     p.gerador.name,
   }))
 
-  return <ContasPagarDashboard aulas={aulas} historico={historico} ajustes={ajustes} />
+  return <ContasPagarDashboard aulas={aulas} historico={historico} ajustes={ajustes} pix={pix} />
 }

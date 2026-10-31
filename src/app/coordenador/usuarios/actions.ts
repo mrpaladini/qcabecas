@@ -8,7 +8,8 @@ import { z } from "zod"
 import { Role, Prisma } from "@prisma/client"
 import { randomBytes } from "crypto"
 import { encryptTemp, decryptTemp } from "@/lib/crypto"
-import { parseSeries, parseDisponibilidade } from "@/lib/professor"
+import { parseSeries, parseDisponibilidade, validarPix, pixTipoLabel } from "@/lib/professor"
+import { arquivoDoForm, prepararCurriculo, gravarCurriculo, apagarArquivoCurriculo, CURRICULO_VAZIO, type CurriculoPreparado } from "@/lib/curriculo"
 import { registrarAuditoria, quem, fmtMoeda } from "@/lib/audit"
 
 const PAPEL: Record<string, string> = { ALUNO: "aluno", PROFESSOR: "professor", COORDENADOR: "coordenador" }
@@ -43,6 +44,8 @@ const AlunoExtraSchema = z.object({
 const ProfessorExtraSchema = z.object({
   phone2:        str(20),
   escolaAtuacao: str(200),
+  pixTipo:       str(20),
+  pixChave:      str(150),
 })
 
 const UsuarioCreateSchema = z.object({
@@ -66,7 +69,24 @@ function professorFromForm(formData: FormData) {
   return {
     phone2:        formData.get("phone2")        || undefined,
     escolaAtuacao: formData.get("escolaAtuacao") || undefined,
+    pixTipo:       formData.get("pixTipo")       || undefined,
+    pixChave:      String(formData.get("pixChave") ?? "").trim() || undefined,
   }
+}
+
+/** PIX é opcional; se informado, tipo e chave precisam ser válidos. */
+function checarPix(tipo?: string, chave?: string): { erro: string } | { pixTipo: string | null; pixChave: string | null } {
+  if (!chave) return { pixTipo: null, pixChave: null }
+  const erro = validarPix(tipo ?? "", chave)
+  return erro ? { erro } : { pixTipo: tipo!, pixChave: chave }
+}
+
+/** Valida o currículo enviado (se houver) ANTES de gravar qualquer coisa. */
+async function checarCurriculo(formData: FormData): Promise<{ erro: string } | { arq: CurriculoPreparado | null }> {
+  const file = arquivoDoForm(formData)
+  if (!file) return { arq: null }
+  const r = await prepararCurriculo(file)
+  return r.ok ? { arq: r.arq } : { erro: r.error }
 }
 
 /** Campos complexos do professor (JSON / checkboxes) — já validados. */
@@ -118,6 +138,11 @@ export async function criarUsuario(formData: FormData) {
   const existe = await prisma.user.findUnique({ where: { email: parsed.data.email } })
   if (existe) return { success: false, error: "E-mail já cadastrado" }
 
+  const pix = role === "PROFESSOR" ? checarPix(parsed.data.pixTipo, parsed.data.pixChave) : { pixTipo: null, pixChave: null }
+  if ("erro" in pix) return { success: false, error: pix.erro }
+  const cv = role === "PROFESSOR" ? await checarCurriculo(formData) : { arq: null }
+  if ("erro" in cv) return { success: false, error: cv.erro }
+
   const senhaPlain   = gerarSenha()
   const passwordHash = await bcrypt.hash(senhaPlain, 12)
 
@@ -151,6 +176,8 @@ export async function criarUsuario(formData: FormData) {
       ...(role === "PROFESSOR" ? {
         phone2:        phone2 ?? null,
         escolaAtuacao: escolaAtuacao ?? null,
+        pixTipo:       pix.pixTipo,
+        pixChave:      pix.pixChave,
         ...professorJsonFromForm(formData),
       } : {}),
     },
@@ -159,9 +186,23 @@ export async function criarUsuario(formData: FormData) {
   await registrarAuditoria(session, "USUARIO_CRIADO", "Usuario", user.id,
     `${quem(session)} cadastrou ${PAPEL[role] ?? "usuário"} ${name} (${email})`)
 
+  // Currículo: grava o arquivo depois de o professor existir (pasta usa o id)
+  let avisoCurriculo: string | undefined
+  if (cv.arq) {
+    try {
+      const campos = await gravarCurriculo(user.id, cv.arq)
+      await prisma.user.update({ where: { id: user.id }, data: campos })
+      await registrarAuditoria(session, "CURRICULO_ENVIADO", "Usuario", user.id,
+        `${quem(session)} enviou o currículo do professor ${name} (${campos.curriculoNome})`)
+    } catch (e) {
+      console.error("[curriculo] falha ao gravar:", e)
+      avisoCurriculo = "Professor cadastrado, mas não foi possível salvar o currículo. Envie novamente em Editar."
+    }
+  }
+
   const path = role === "ALUNO" ? "/coordenador/alunos" : role === "PROFESSOR" ? "/coordenador/professores" : "/coordenador/coordenadores"
   revalidatePath(path)
-  return { success: true, data: { id: String(user.id), senhaGerada: senhaPlain } }
+  return { success: true, data: { id: String(user.id), senhaGerada: senhaPlain, aviso: avisoCurriculo } }
 }
 
 export async function atualizarUsuario(id: string, formData: FormData) {
@@ -179,7 +220,10 @@ export async function atualizarUsuario(id: string, formData: FormData) {
   })
   if (!parsed.success) return { success: false, error: "Dados inválidos: verifique nome (mín. 3 letras), e-mail e valores" }
 
-  const user = await prisma.user.findUnique({ where: { id: BigInt(id) }, select: { role: true, email: true, name: true, precoPresencial: true, precoVirtual: true } })
+  const user = await prisma.user.findUnique({
+    where: { id: BigInt(id) },
+    select: { role: true, email: true, name: true, precoPresencial: true, precoVirtual: true, pixTipo: true, pixChave: true, curriculoArquivo: true, curriculoNome: true },
+  })
   if (!user) return { success: false, error: "Usuário não encontrado" }
 
   if (parsed.data.email !== user.email) {
@@ -191,6 +235,25 @@ export async function atualizarUsuario(id: string, formData: FormData) {
     responsavelNome, cpfResponsavel, responsavelTelefone,
     rua, bairro, cidade, cep, referenciaEndereco,
     escola, serie, observacoes, phone2, escolaAtuacao } = parsed.data
+
+  // ── Professor: PIX e currículo ──
+  const ehProf = user.role === "PROFESSOR"
+  const pix = ehProf ? checarPix(parsed.data.pixTipo, parsed.data.pixChave) : { pixTipo: null, pixChave: null }
+  if ("erro" in pix) return { success: false, error: pix.erro }
+  const cv = ehProf ? await checarCurriculo(formData) : { arq: null }
+  if ("erro" in cv) return { success: false, error: cv.erro }
+  const removerCv = ehProf && !cv.arq && String(formData.get("removerCurriculo") ?? "") === "true"
+
+  let camposCv: Record<string, unknown> = {}
+  if (cv.arq) {
+    try { camposCv = await gravarCurriculo(BigInt(id), cv.arq) }
+    catch (e) {
+      console.error("[curriculo] falha ao gravar:", e)
+      return { success: false, error: "Não foi possível salvar o currículo. Tente novamente." }
+    }
+  } else if (removerCv) {
+    camposCv = CURRICULO_VAZIO
+  }
 
   // Só grava os campos que pertencem ao perfil do usuário — assim a edição
   // de um professor nunca apaga dados de aluno e vice-versa.
@@ -219,10 +282,20 @@ export async function atualizarUsuario(id: string, formData: FormData) {
       ...(user.role === "PROFESSOR" ? {
         phone2:        phone2 ?? null,
         escolaAtuacao: escolaAtuacao ?? null,
+        pixTipo:       pix.pixTipo,
+        pixChave:      pix.pixChave,
         ...professorJsonFromForm(formData),
+        ...camposCv,
       } : {}),
     },
   })
+
+  // Arquivo antigo sai do disco quando foi substituído ou removido
+  if ((cv.arq || removerCv) && user.curriculoArquivo) await apagarArquivoCurriculo(user.curriculoArquivo)
+  if (cv.arq) await registrarAuditoria(session, "CURRICULO_ENVIADO", "Usuario", id,
+    `${quem(session)} ${user.curriculoArquivo ? "substituiu" : "enviou"} o currículo do professor ${name} (${cv.arq.originalName})`)
+  if (removerCv && user.curriculoArquivo) await registrarAuditoria(session, "CURRICULO_REMOVIDO", "Usuario", id,
+    `${quem(session)} removeu o currículo do professor ${name} (${user.curriculoNome ?? ""})`)
 
   const mud: string[] = []
   if (user.name !== name) mud.push(`nome ${user.name} → ${name}`)
@@ -233,6 +306,9 @@ export async function atualizarUsuario(id: string, formData: FormData) {
     if (Number(user.precoVirtual ?? 0) !== Number(precoVirtual ?? 0))
       mud.push(`valor online ${fmtMoeda(Number(user.precoVirtual ?? 0))} → ${fmtMoeda(Number(precoVirtual ?? 0))}`)
   }
+  // Não grava a chave na auditoria — só que ela mudou
+  if (ehProf && ((user.pixTipo ?? null) !== pix.pixTipo || (user.pixChave ?? null) !== pix.pixChave))
+    mud.push(pix.pixChave ? `chave PIX alterada (${pixTipoLabel(pix.pixTipo)})` : "chave PIX removida")
   await registrarAuditoria(session, "USUARIO_ALTERADO", "Usuario", id,
     `${quem(session)} alterou o cadastro do ${PAPEL[user.role] ?? "usuário"} ${name}` + (mud.length ? `: ${mud.join("; ")}` : ""))
 
@@ -283,6 +359,7 @@ export async function excluirUsuario(id: string) {
     select: {
       role: true,
       name: true,
+      curriculoArquivo: true,
       _count: {
         select: {
           appointmentsAsAluno: true,
@@ -322,6 +399,7 @@ export async function excluirUsuario(id: string) {
     if (u.contaAluno) await tx.contaAluno.delete({ where: { id: u.contaAluno.id } })
     await tx.user.delete({ where: { id: userId } })
   })
+  await apagarArquivoCurriculo(u.curriculoArquivo)
   await registrarAuditoria(session, "USUARIO_EXCLUIDO", "Usuario", id,
     `${quem(session)} excluiu definitivamente o ${PAPEL[u.role] ?? "usuário"} ${u.name}`)
 

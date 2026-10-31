@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from "react"
 import { criarUsuario } from "@/app/coordenador/usuarios/actions"
 import { CurrencyInput } from "@/components/ui/CurrencyInput"
 import { ProfessorCampos, PROFESSOR_EXTRAS_VAZIO, appendProfessorExtras, type ProfessorExtras } from "./ProfessorCampos"
+import { PixCurriculoCampos, PIX_CURRICULO_VAZIO, appendPixCurriculo, erroPixCurriculo, type PixCurriculoValor } from "./PixCurriculoCampos"
 
 const LABELS: Record<string, string> = {
   ALUNO: "Aluno",
@@ -50,22 +51,33 @@ export function NovoUsuarioForm({ role }: { role: "ALUNO" | "PROFESSOR" | "COORD
   const [precoPresencial, setPrecoPresencial] = useState("")
   const [precoVirtual, setPrecoVirtual]       = useState("")
   const [extras, setExtras] = useState<ProfessorExtras>(PROFESSOR_EXTRAS_VAZIO)
+  const [pixCv, setPixCv]   = useState<PixCurriculoValor>(PIX_CURRICULO_VAZIO)
+  const [pixCvKey, setPixCvKey] = useState(0) // remonta o campo de arquivo ao limpar o formulário
+  const [aviso, setAviso]   = useState<string | null>(null)
   const formRef                       = useRef<HTMLFormElement>(null)
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setErro(null)
+    setAviso(null)
     setSenhaGerada(null)
+    if (role === "PROFESSOR") {
+      const e2 = erroPixCurriculo(pixCv)
+      if (e2) { setErro(e2); return }
+    }
     const formData = new FormData(e.currentTarget)
     formData.set("role", role)
     formData.set("precoPresencial", precoPresencial)
     formData.set("precoVirtual", precoVirtual)
-    if (role === "PROFESSOR") appendProfessorExtras(formData, extras)
+    if (role === "PROFESSOR") { appendProfessorExtras(formData, extras); appendPixCurriculo(formData, pixCv) }
 
     startTransition(async () => {
       const res = await criarUsuario(formData)
       if (res.success) {
         setSenhaGerada(res.data!.senhaGerada)
+        if (res.data?.aviso) setAviso(res.data.aviso)
+        setPixCv(PIX_CURRICULO_VAZIO)
+        setPixCvKey(k => k + 1)
         formRef.current?.reset()
         setPrecoPresencial("")
         setPrecoVirtual("")
@@ -93,6 +105,9 @@ export function NovoUsuarioForm({ role }: { role: "ALUNO" | "PROFESSOR" | "COORD
       )}
       {erro && (
         <div className="mb-4 bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700">{erro}</div>
+      )}
+      {aviso && (
+        <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-800">{aviso}</div>
       )}
 
       <form ref={formRef} onSubmit={handleSubmit} className="space-y-6">
@@ -126,6 +141,11 @@ export function NovoUsuarioForm({ role }: { role: "ALUNO" | "PROFESSOR" | "COORD
                 <CampoValor label="🏫 Presencial" value={precoPresencial} onChange={setPrecoPresencial} />
                 <CampoValor label="💻 Online" value={precoVirtual} onChange={setPrecoVirtual} />
               </div>
+            </div>
+
+            <div>
+              <h4 className={secao}>Pagamento (PIX) e currículo</h4>
+              <PixCurriculoCampos key={pixCvKey} value={pixCv} onChange={setPixCv} />
             </div>
 
             <div>

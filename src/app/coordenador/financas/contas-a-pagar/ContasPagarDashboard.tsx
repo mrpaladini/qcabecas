@@ -3,6 +3,7 @@
 import { useState, useMemo, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { gerarPagamento, editarValorAula } from "./actions"
+import { pixTipoLabel } from "@/lib/professor"
 
 type AulaItem = {
   evidenciaId: string
@@ -44,11 +45,14 @@ export function ContasPagarDashboard({
   aulas,
   historico,
   ajustes = {},
+  pix = {},
 }: {
   aulas: AulaItem[]
   historico: HistoricoItem[]
   /** Saldo de débitos/créditos manuais pendentes por professorId */
   ajustes?: Record<string, number>
+  /** Chave PIX cadastrada por professorId */
+  pix?: Record<string, { tipo: string | null; chave: string }>
 }) {
   const router = useRouter()
   const [aba, setAba] = useState<"pendentes" | "historico">("pendentes")
@@ -321,6 +325,12 @@ export function ContasPagarDashboard({
                       <p className="text-xs text-neutral-500">
                         {aulasProf.length} aula(s) · {pendentes.length} pendente(s)
                       </p>
+                      <p className="text-xs text-neutral-500" onClick={e => e.stopPropagation()}>
+                        PIX:{" "}
+                        {pix[profId]
+                          ? <span className="font-medium text-neutral-700">{pixTipoLabel(pix[profId].tipo)} · <span className="font-mono select-all">{pix[profId].chave}</span></span>
+                          : <span className="italic text-amber-600">não cadastrado (Professores → Editar)</span>}
+                      </p>
                       {(ajustes[profId] ?? 0) !== 0 && (
                         <p className={`text-xs font-medium ${ajustes[profId] > 0 ? "text-green-700" : "text-red-700"}`}>
                           Ajustes pendentes (débito/crédito): {ajustes[profId] > 0 ? "+" : "−"}{fmt(Math.abs(ajustes[profId]))}
@@ -508,6 +518,14 @@ export function ContasPagarDashboard({
               <p className="font-semibold text-neutral-800">
                 {aulasSelecionadas[0]?.professorNome}
               </p>
+              {professorSelecionado && (
+                <p className="text-neutral-600">
+                  PIX:{" "}
+                  {pix[professorSelecionado]
+                    ? <span className="font-medium text-neutral-800">{pixTipoLabel(pix[professorSelecionado].tipo)} · <span className="font-mono select-all">{pix[professorSelecionado].chave}</span></span>
+                    : <span className="italic text-amber-600">não cadastrado</span>}
+                </p>
+              )}
               <p className="text-neutral-600">{selecionados.size} aula(s) selecionada(s): {fmt(totalSelecionado)}</p>
               {professorSelecionado && (ajustes[professorSelecionado] ?? 0) !== 0 && (
                 <p className={ajustes[professorSelecionado] > 0 ? "text-green-700" : "text-red-700"}>

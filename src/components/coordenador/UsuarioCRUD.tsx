@@ -5,7 +5,9 @@ import { atualizarUsuario, desativarUsuario, reativarUsuario, regerarSenha, excl
 import { lancarAjusteProfessor, estornarAjusteProfessor } from "@/app/coordenador/professores/actions"
 import { CurrencyInput } from "@/components/ui/CurrencyInput"
 import { ProfessorCampos, appendProfessorExtras, type ProfessorExtras } from "./ProfessorCampos"
-import { resumoDisponibilidade, serieLabel, type Disponibilidade, type SerieKey } from "@/lib/professor"
+import { resumoDisponibilidade, serieLabel, pixTipoLabel, type Disponibilidade, type SerieKey } from "@/lib/professor"
+import { PixCurriculoCampos, PIX_CURRICULO_VAZIO, appendPixCurriculo, erroPixCurriculo, LinksCurriculo,
+  type PixCurriculoValor, type CurriculoAtual } from "./PixCurriculoCampos"
 
 export type AjusteItem = {
   id: string
@@ -46,6 +48,9 @@ export type Usuario = {
   atendePresencial?: boolean
   atendeOnline?: boolean
   disponibilidade?: Disponibilidade[]
+  pixTipo?: string | null
+  pixChave?: string | null
+  curriculo?: CurriculoAtual | null
   ajustes?: AjusteItem[]
 }
 
@@ -230,6 +235,7 @@ export function UsuarioCRUD({ usuarios, role }: { usuarios: Usuario[]; role: "AL
   const [isPending, startTransition]   = useTransition()
   const [editData, setEditData]        = useState<Record<string, any>>({})
   const [extras, setExtras]            = useState<ProfessorExtras | null>(null)
+  const [pixCv, setPixCv]              = useState<PixCurriculoValor>(PIX_CURRICULO_VAZIO)
 
   function set(field: string) {
     return (v: string) => setEditData(p => ({ ...p, [field]: v }))
@@ -260,12 +266,18 @@ export function UsuarioCRUD({ usuarios, role }: { usuarios: Usuario[]; role: "AL
       atendeOnline:     u.atendeOnline ?? false,
       disponibilidade:  u.disponibilidade ?? [],
     })
+    setPixCv({ pixTipo: u.pixTipo ?? "", pixChave: u.pixChave ?? "", curriculo: null, removerCurriculo: false })
   }
 
   async function handleUpdate(id: string) {
     const fd = new FormData()
     Object.entries(editData).forEach(([k, v]) => fd.set(k, v))
-    if (role === "PROFESSOR" && extras) appendProfessorExtras(fd, extras)
+    if (role === "PROFESSOR") {
+      const e = erroPixCurriculo(pixCv)
+      if (e) { setErro(id, e); return }
+      if (extras) appendProfessorExtras(fd, extras)
+      appendPixCurriculo(fd, pixCv)
+    }
     startTransition(async () => {
       const res = await atualizarUsuario(id, fd)
       if (res.success) { setEditingId(null); setErro(id, null) }
@@ -333,6 +345,18 @@ export function UsuarioCRUD({ usuarios, role }: { usuarios: Usuario[]; role: "AL
                         </div>
                       )}
                       {u.escolaAtuacao && <p>Leciona em: {u.escolaAtuacao}</p>}
+                      <p>
+                        <span className="text-neutral-400">PIX: </span>
+                        {u.pixChave
+                          ? <span className="text-neutral-700 font-medium">{pixTipoLabel(u.pixTipo)} · <span className="font-mono select-all">{u.pixChave}</span></span>
+                          : <span className="italic text-amber-600">não cadastrado</span>}
+                      </p>
+                      <p>
+                        <span className="text-neutral-400">Currículo: </span>
+                        {u.curriculo
+                          ? <LinksCurriculo professorId={u.id} atual={u.curriculo} className="text-neutral-700" />
+                          : <span className="italic text-neutral-400">não enviado</span>}
+                      </p>
                       {((u.seriesAtendidas?.length ?? 0) > 0 || u.atendePresencial || u.atendeOnline) && (
                         <div className="flex flex-wrap gap-1.5">
                           {u.atendePresencial && <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">🏫 Presencial</span>}
@@ -454,6 +478,13 @@ export function UsuarioCRUD({ usuarios, role }: { usuarios: Usuario[]; role: "AL
                     </>
                   )}
                 </div>
+
+                {role === "PROFESSOR" && (
+                  <div>
+                    <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-2">Pagamento (PIX) e currículo</p>
+                    <PixCurriculoCampos value={pixCv} onChange={setPixCv} professorId={u.id} atual={u.curriculo ?? null} compact />
+                  </div>
+                )}
 
                 {role === "PROFESSOR" && extras && (
                   <>
